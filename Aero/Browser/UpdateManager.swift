@@ -13,7 +13,7 @@ struct ReleaseInfo: Equatable {
 final class UpdateManager: ObservableObject {
     static let shared = UpdateManager()
 
-    ///
+    /// ⚠️ Set this to the GitHub "owner/repo" that publishes your releases.
     nonisolated static let repo = "mohak-bhatt/aero"
 
     enum Status: Equatable { case idle, checking, upToDate, available, installing, failed(String) }
