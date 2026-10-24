@@ -15,3 +15,7 @@ xcuserdata/
 
 # Release artifacts
 Aero.zip
+Aero.dmg
+Aero.zip
+dmg-staging/
+build/
