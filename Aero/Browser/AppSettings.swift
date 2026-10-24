@@ -1,11 +1,3 @@
-//
-//  SearchEngine.swift
-//  Aero
-//
-//  Created by Mohak Bhatt on 24/10/26.
-//
-
-
 import AppKit
 import Combine
 import WebKit
@@ -39,6 +31,7 @@ enum Pref {
     static let sugWebKey = "aero.sug.web"
     static let barKey = "aero.bookmarksBar"
     static let layoutKey = "aero.layout"
+    static let blurKey = "aero.blur"
     static let sidebarSizeKey = "aero.sidebarSize"
 
     static func bool(_ key: String, default value: Bool) -> Bool {
@@ -117,5 +110,20 @@ enum Prompt {
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+}
+
+
+enum DefaultBrowser {
+    static var isDefault: Bool {
+        guard let url = URL(string: "https://example.com"),
+              let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return false }
+        return app == Bundle.main.bundleURL
+    }
+
+    static func makeDefault() {
+        for scheme in ["http", "https"] {
+            NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpenURLsWithScheme: scheme) { _ in }
+        }
     }
 }

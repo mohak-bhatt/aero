@@ -1,11 +1,3 @@
-//
-//  Onboarding.swift
-//  Aero
-//
-//  Created by Mohak Bhatt on 24/10/26.
-//
-
-
 import SwiftUI
 
 @MainActor
@@ -45,8 +37,10 @@ struct OnboardingView: View {
     @AppStorage(Pref.domainOnlyKey) private var domainOnly = true
     @AppStorage(Pref.tintKey) private var tint = true
     @AppStorage(Pref.barKey) private var bar = true
+    @AppStorage(Pref.blurKey) private var blur = 0.85
+    @State private var madeDefault = DefaultBrowser.isDefault
 
-    private let total = 7
+    private let total = 9
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,7 +51,9 @@ struct OnboardingView: View {
                 case 2: sizeStep
                 case 3: searchStep
                 case 4: lookStep
-                case 5: organizeStep
+                case 5: importStep
+                case 6: defaultStep
+                case 7: organizeStep
                 default: shortcutsStep
                 }
             }
@@ -154,6 +150,10 @@ struct OnboardingView: View {
                     Text("Always neutral glass").font(.system(size: 13, weight: .medium))
                 }
             }
+            VStack(spacing: 4) {
+                Slider(value: $blur, in: 0.1...1) { Text("Background blur") } minimumValueLabel: { Text("Clear").font(.caption) } maximumValueLabel: { Text("Frosted").font(.caption) }
+                Text("Background blur").font(.caption).foregroundStyle(.secondary)
+            }
             HStack(spacing: 16) {
                 OptionCard(selected: bar, action: { bar = true }) {
                     Image(systemName: "bookmark").font(.system(size: 22)); Text("Show bookmarks bar").font(.system(size: 13, weight: .medium))
@@ -162,6 +162,33 @@ struct OnboardingView: View {
                     Image(systemName: "bookmark.slash").font(.system(size: 22)); Text("Hide bookmarks bar").font(.system(size: 13, weight: .medium))
                 }
             }
+        }
+    }
+
+    private var importStep: some View {
+        VStack(spacing: 18) {
+            header("square.and.arrow.down", "Bring your bookmarks", "Import from the browser you used before — or skip and do it later in File → Import.")
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                ForEach(Importer.Source.allCases) { source in
+                    OptionCard(selected: false, action: { Importer.run(source) }) {
+                        Image(systemName: source.symbol).font(.system(size: 20)).frame(height: 24)
+                        Text(source.rawValue).font(.system(size: 12, weight: .medium)).multilineTextAlignment(.center)
+                    }
+                }
+            }
+            Text("Passwords and extensions can't be imported yet.").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var defaultStep: some View {
+        VStack(spacing: 22) {
+            header("checkmark.seal", "Make Aero your default browser", "Links from other apps will open here.")
+            OptionCard(selected: madeDefault, action: { DefaultBrowser.makeDefault(); madeDefault = true }) {
+                Image(systemName: madeDefault ? "checkmark.circle.fill" : "safari").font(.system(size: 30)).frame(height: 40)
+                Text(madeDefault ? "Aero is set as default (confirm the macOS prompt)" : "Set Aero as default browser")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            Text("You can change this any time in Settings → General.").font(.caption).foregroundStyle(.secondary)
         }
     }
 

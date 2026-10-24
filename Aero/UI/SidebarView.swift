@@ -31,7 +31,9 @@ private struct SidebarContent: View {
 
     @State private var dragID: UUID?
     @State private var dragStartIndex = 0
+    @State private var dragTarget = 0
     @State private var dragHeight: CGFloat = 0
+    @State private var dragOutside = false
 
     private var size: SidebarSize { state.sidebarSize }
     private var controlHeight: CGFloat { size.controlHeight }
@@ -67,6 +69,7 @@ private struct SidebarContent: View {
         .background { SidebarBackground(tint: tint, isOverlay: isOverlay).ignoresSafeArea() }
         .overlay { bookmarksDropdown }
         .overlay(alignment: .trailing) { SidebarResizeHandle(state: state) }
+        .contextMenu { BackgroundContextMenu() }
     }
 
     // MARK: Window row
@@ -136,49 +139,68 @@ private struct SidebarContent: View {
         }
     }
 
-    // MARK: Tabs
+    // MARK: Tabs (smooth drag to reorder; release outside the window for a new window)
 
     private var tabList: some View {
         let list = tabs.unpinnedTabs
         return VStack(spacing: 2) {
-            ForEach(list) { item in
+            ForEach(Array(list.enumerated()), id: \.element.id) { index, item in
+                let dragged = dragID == item.id
+                let shift = rowShift(index: index)
                 SidebarTabRow(tab: item, size: size, isSelected: item.id == tabs.selectedID,
                               onSelect: { tabs.selectTab(item) },
                               onClose: { tabs.closeTab(item) },
                               onPin: { tabs.togglePin(item) },
                               onFavorite: { state.toggleFavorite(item) })
-                    .offset(y: dragOffset(for: item, in: list))
-                    .zIndex(dragID == item.id ? 1 : 0)
-                    .gesture(dragGesture(for: item))
+                    .offset(y: dragged ? dragHeight : shift)
+                    .scaleEffect(dragged ? (dragOutside ? 0.9 : 1.03) : 1)
+                    .opacity(dragged && dragOutside ? 0.7 : 1)
+                    .zIndex(dragged ? 10 : 0)
+                    .animation(dragged ? nil : .spring(response: 0.28, dampingFraction: 0.82), value: shift)
+                    .animation(.easeOut(duration: 0.12), value: dragOutside)
+                    .gesture(dragGesture(for: item, index: index, list: list))
             }
         }
     }
 
-    private func dragOffset(for item: BrowserTab, in list: [BrowserTab]) -> CGFloat {
-        guard dragID == item.id, let current = list.firstIndex(where: { $0.id == item.id }) else { return 0 }
-        return dragHeight - CGFloat(current - dragStartIndex) * rowStep
+    private func rowShift(index: Int) -> CGFloat {
+        guard dragID != nil else { return 0 }
+        if dragStartIndex < dragTarget, index > dragStartIndex, index <= dragTarget { return -rowStep }
+        if dragStartIndex > dragTarget, index < dragStartIndex, index >= dragTarget { return rowStep }
+        return 0
     }
 
-    private func dragGesture(for item: BrowserTab) -> some Gesture {
+    private func resetDrag() {
+        dragID = nil; dragHeight = 0; dragTarget = 0; dragOutside = false
+    }
+
+    private func dragGesture(for item: BrowserTab, index: Int, list: [BrowserTab]) -> some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
-                let list = tabs.unpinnedTabs
-                if dragID != item.id {
-                    dragID = item.id
-                    dragStartIndex = list.firstIndex(where: { $0.id == item.id }) ?? 0
-                }
+                if dragID != item.id { dragID = item.id; dragStartIndex = index; dragTarget = index }
                 dragHeight = value.translation.height
-                let target = min(max(dragStartIndex + Int((value.translation.height / rowStep).rounded()), 0), list.count - 1)
-                if let current = list.firstIndex(where: { $0.id == item.id }), current != target {
-                    withAnimation(.easeOut(duration: 0.15)) { tabs.move(item, to: list[target]) }
-                }
+                dragTarget = min(max(index + Int((value.translation.height / rowStep).rounded()), 0), list.count - 1)
+                dragOutside = state.window.map { !$0.frame.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation) } ?? false
             }
             .onEnded { value in
                 let point = NSEvent.mouseLocation
-                dragID = nil
-                dragHeight = 0
-                let outside = state.window.map { !$0.frame.insetBy(dx: -4, dy: -4).contains(point) } ?? false
-                if outside || value.translation.width > state.sidebarColumnWidth + 120 { state.tearOff(item, at: point) }
+                if dragOutside || value.translation.width > state.sidebarColumnWidth + 120 {
+                    resetDrag()
+                    state.tearOff(item, at: point)
+                    return
+                }
+                let target = dragTarget, start = dragStartIndex
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                    dragHeight = CGFloat(target - start) * rowStep      // settle into the slot
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        if target != start, list.indices.contains(target) { tabs.move(item, to: list[target]) }
+                        resetDrag()
+                    }
+                }
             }
     }
 
@@ -195,6 +217,7 @@ private struct SidebarContent: View {
 
     private var bottomBar: some View {
         VStack(spacing: 8) {
+            MediaCardView(tabs: tabs).padding(.horizontal, size.hPad)
             UpdateNowButton().padding(.horizontal, size.hPad)
             bottomControls
         }
@@ -241,10 +264,12 @@ private struct SidebarContent: View {
 struct SidebarBackground: View {
     let tint: Color?
     let isOverlay: Bool
+    @AppStorage(Pref.blurKey) private var blur = 0.85
 
     var body: some View {
         ZStack {
             VisualEffectView(material: .sidebar, blending: isOverlay ? .withinWindow : .behindWindow)
+                .opacity(isOverlay ? 1 : max(0.1, blur))
             if let tint { tint.opacity(0.55) }
         }
         .animation(.easeInOut(duration: 0.35), value: tint)
@@ -355,11 +380,7 @@ struct PinnedTabTile: View {
             .onTapGesture(perform: onSelect)
             .onHover { hovering = $0 }
             .help(tab.displayTitle)
-            .contextMenu {
-                Button("Unpin Tab", action: onUnpin)
-                Button("Add to Favorites", action: onFavorite).disabled(tab.url == nil)
-                Button("Close Tab", action: onClose)
-            }
+            .contextMenu { TabContextMenu(tab: tab) }
     }
 }
 
@@ -399,10 +420,6 @@ private struct SidebarTabRow: View {
         .contentShape(shape)
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
-        .contextMenu {
-            Button("Pin Tab", action: onPin)
-            Button("Add to Favorites", action: onFavorite).disabled(tab.url == nil)
-            Button("Close Tab", action: onClose)
-        }
+        .contextMenu { TabContextMenu(tab: tab) }
     }
 }

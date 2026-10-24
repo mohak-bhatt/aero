@@ -106,6 +106,11 @@ final class BrowserState: ObservableObject {
         }
 
         bindSessionSaving()
+        tabs.onLeaveTab = { [weak self] tab in   // horizontal layout: playing video pops out automatically
+            guard self?.layout == .horizontal, let info = MediaHub.shared.items[tab.id],
+                  info.isVideo, info.isPlaying else { return }
+            tab.mediaCommand("pip")
+        }
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in self?.systemSidebarSize = SidebarSize.fromSystem() }
             .store(in: &cancellables)
@@ -214,6 +219,18 @@ final class BrowserState: ObservableObject {
         if let name = Prompt.text(title: "New Bookmark Folder", initial: "New Folder", button: "Create"), !name.isEmpty {
             bookmarks.addFolder(title: name, to: folder)
         }
+    }
+
+    func addBookmark(for tab: BrowserTab, in folder: UUID? = nil) {
+        guard let url = tab.url, url.scheme?.hasPrefix("http") == true,
+              let name = Prompt.text(title: "Add Bookmark", message: url.absoluteString, initial: tab.displayTitle, button: "Add") else { return }
+        let icon = tab.favicon?.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }
+        bookmarks.addBookmark(title: name.isEmpty ? tab.displayTitle : name, url: url, icon: icon, to: folder)
+    }
+
+    func moveTabToNewWindow(_ tab: BrowserTab) {
+        let frame = window?.frame ?? .zero
+        tearOff(tab, at: NSPoint(x: frame.midX, y: frame.midY))
     }
 
     func openBookmark(_ node: BookmarkNode, inNewTab: Bool) {

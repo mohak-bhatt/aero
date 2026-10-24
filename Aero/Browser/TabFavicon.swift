@@ -15,7 +15,7 @@ struct TabFavicon: View {
                     .interpolation(.high)
                     .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
             } else {
-                Image(systemName: tab.url == nil ? "plus.square.dashed" : "globe")
+                Image(systemName: tab.url == nil ? "house" : "globe")
                     .font(.system(size: size * 0.75))
                     .foregroundStyle(.secondary)
             }

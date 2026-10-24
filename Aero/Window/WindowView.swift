@@ -17,6 +17,7 @@ struct WindowView: View {
             }
         }
         .ignoresSafeArea(.container, edges: .top)
+        .environmentObject(state)
         .overlayPreferenceValue(OmniboxFrameKey.self) { anchor in
             GeometryReader { proxy in
                 if let anchor, !state.suggestions.isEmpty {
@@ -32,18 +33,15 @@ struct WindowView: View {
         }
     }
 
-    // MARK: Horizontal: tabs on top, address toolbar below, bookmarks bar
+    // MARK: Horizontal (Safari-style): tabs on top, address toolbar, bookmarks centered below
 
     private var horizontalLayout: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                TabStripView(state: state, manager: tabs)
-                if let tab = tabs.selectedTab { BrowserToolbar(tab: tab, state: state) }
-                if state.showBookmarksBar { BookmarksBar(state: state, favorites: state.favorites, store: state.bookmarks, tabs: tabs) }
+            if let tab = tabs.selectedTab {
+                HorizontalChrome(state: state, tabs: tabs, tab: tab)
+            } else {
+                Color.clear.frame(height: state.rowHeight)
             }
-            .background(ChromeBackground())
-            .zIndex(2)
-
             content(topInset: 10)
         }
     }
@@ -104,5 +102,34 @@ private struct TabContentView: View {
         } else {
             NewTabView(state: state)
         }
+    }
+}
+
+
+/// The three horizontal rows share one see-through, website-tinted backdrop.
+private struct HorizontalChrome: View {
+    @ObservedObject var state: BrowserState
+    @ObservedObject var tabs: TabManager
+    @ObservedObject var tab: BrowserTab
+
+    private var tint: Color? {
+        Pref.bool(Pref.tintKey, default: true) ? tab.themeColor.map { Color(nsColor: $0) } : nil
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TabStripView(state: state, manager: tabs)
+            BrowserToolbar(tab: tab, state: state)
+            if state.showBookmarksBar {
+                BookmarksBar(state: state, favorites: state.favorites, store: state.bookmarks, tabs: tabs)
+            }
+            Color.clear.frame(height: 6)
+        }
+        .background {
+            SidebarBackground(tint: tint, isOverlay: false)
+                .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 0.5) }
+        }
+        .contextMenu { BackgroundContextMenu() }
+        .zIndex(2)
     }
 }

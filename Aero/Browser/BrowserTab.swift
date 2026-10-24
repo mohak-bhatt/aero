@@ -38,7 +38,7 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
 
     var displayTitle: String {
         if !title.isEmpty { return title }
-        return url?.host ?? "New Tab"
+        return url?.host ?? "Home"
     }
 
     init(url: URL? = nil,
@@ -56,6 +56,7 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
         webView.allowsLinkPreview = false   // system preview was logged-out and offered Safari
         if #available(macOS 13.3, *) { webView.isInspectable = true }
         observeWebView()
+        installMedia()
         if let url {
             if loadImmediately { load(url) } else { pendingURL = url }
         }
@@ -131,9 +132,38 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
         }
     }
 
+    // MARK: Media (mini-player)
+
+    private func installMedia() {
+        let controller = webView.configuration.userContentController
+        controller.removeScriptMessageHandler(forName: "aeroMedia")
+        controller.add(MediaMessageHandler(tab: self), name: "aeroMedia")
+        if !controller.userScripts.contains(where: { $0.source.contains("__aero") }) {
+            controller.addUserScript(WKUserScript(source: MediaScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        }
+    }
+
+    func handleMedia(_ body: [String: Any]) {
+        guard let playing = body["playing"] as? Bool else { return }
+        let info = MediaInfo(isPlaying: playing,
+                             isVideo: body["video"] as? Bool ?? false,
+                             title: (body["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? displayTitle,
+                             artist: body["artist"] as? String ?? "",
+                             artworkURL: (body["artwork"] as? String).flatMap(URL.init(string:)),
+                             duration: body["duration"] as? Double ?? 0,
+                             currentTime: body["time"] as? Double ?? 0)
+        MediaHub.shared.update(id, info)
+    }
+
+    func mediaCommand(_ command: String) {
+        webView.evaluateJavaScript("window.__aero && window.__aero.\(command)()", completionHandler: nil)
+    }
+
     // MARK: Lifecycle
 
     func tearDown() {
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "aeroMedia")
+        MediaHub.shared.update(id, nil)
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil

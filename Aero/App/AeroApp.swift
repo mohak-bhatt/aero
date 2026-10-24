@@ -55,6 +55,9 @@ struct AeroCommands: Commands {
             Button("New Tab") { state?.newTab() }.keyboardShortcut("t", modifiers: .command)
             Button("Open File…") { state?.openFile() }.keyboardShortcut("o", modifiers: .command)
             Button("Open Location…") { state?.requestOmniboxFocus() }.keyboardShortcut("l", modifiers: .command)
+            Menu("Import Bookmarks From") {
+                ForEach(Importer.Source.allCases) { source in Button(source.rawValue) { Importer.run(source) } }
+            }
         }
 
         CommandGroup(replacing: .saveItem) {

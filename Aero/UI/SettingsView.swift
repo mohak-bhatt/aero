@@ -1,11 +1,3 @@
-//
-//  SettingsView.swift
-//  Aero
-//
-//  Created by Mohak Bhatt on 24/10/26.
-//
-
-
 import SwiftUI
 
 /// Settings (⌘,): toolbar-style tabs like Safari's.
@@ -34,6 +26,21 @@ private struct GeneralPane: View {
             }
             Toggle("Show only the website domain in the address bar", isOn: $domainOnly)
             Toggle("Show bookmarks bar (horizontal tabs)", isOn: $bookmarksBar)
+            Section("Default browser") {
+                HStack {
+                    Text(DefaultBrowser.isDefault ? "Aero is your default browser" : "Aero is not your default browser")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Make Default") { DefaultBrowser.makeDefault() }.disabled(DefaultBrowser.isDefault)
+                }
+            }
+            Section("Import") {
+                Menu("Import Bookmarks From…") {
+                    ForEach(Importer.Source.allCases) { source in
+                        Button(source.rawValue) { Importer.run(source) }
+                    }
+                }
+            }
             Section("Downloads") {
                 LabeledContent("Saved to") { Text("~/Downloads").foregroundStyle(.secondary) }
                 Button("Show Downloads in Finder") { Task { @MainActor in DownloadManager.shared.showInFinder() } }
@@ -47,6 +54,7 @@ private struct AppearancePane: View {
     @AppStorage(Pref.layoutKey) private var layout = "horizontal"
     @AppStorage(Pref.sidebarSizeKey) private var sizeChoice = 0
     @AppStorage(Pref.tintKey) private var tint = true
+    @AppStorage(Pref.blurKey) private var blur = 0.85
 
     var body: some View {
         Form {
@@ -61,6 +69,10 @@ private struct AppearancePane: View {
                 Text("Large").tag(3)
             }
             Toggle("Tint the sidebar with the website's colour", isOn: $tint)
+            VStack(alignment: .leading) {
+                Text("Background blur")
+                Slider(value: $blur, in: 0.1...1) { Text("Background blur") } minimumValueLabel: { Text("Clear") } maximumValueLabel: { Text("Frosted") }
+            }
         }
         .formStyle(.grouped)
     }

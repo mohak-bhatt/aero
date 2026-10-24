@@ -1,11 +1,3 @@
-//
-//  PanelHeightKey.swift
-//  Aero
-//
-//  Created by Mohak Bhatt on 24/10/26.
-//
-
-
 import SwiftUI
 import AppKit
 
@@ -106,11 +98,25 @@ struct BookmarksPanel: View {
                 .background(GeometryReader { Color.clear.preference(key: PanelHeightKey.self, value: $0.size.height) })
             }
             .scrollIndicators(.hidden)
-            .frame(height: min(max(contentHeight, 40), maxHeight - 36))
-            .onPreferenceChange(PanelHeightKey.self) { contentHeight = $0 }
+            .frame(height: min(rowsHeight, maxHeight - 36))
+            .animation(.easeOut(duration: 0.18), value: rowsHeight)
         }
         .glass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+    }
+
+    /// Height follows exactly what is visible: every row plus every expanded folder.
+    private var rowsHeight: CGFloat { store.items.isEmpty ? 56 : visibleRows(store.items) + 12 }
+
+    private func visibleRows(_ nodes: [BookmarkNode]) -> CGFloat {
+        nodes.reduce(0) { total, node in
+            var next = total + 28
+            if node.isFolder, expanded.contains(node.id) {
+                let kids = node.children ?? []
+                next += kids.isEmpty ? 22 : visibleRows(kids)
+            }
+            return next
+        }
     }
 
     private func headerButton(_ symbol: String, _ help: String, _ action: @escaping () -> Void) -> some View {
@@ -206,6 +212,7 @@ struct BookmarksBar: View {
 
     var body: some View {
         if !favorites.items.isEmpty || !store.items.isEmpty {
+            GeometryReader { geo in
             ScrollView(.horizontal) {
                 HStack(spacing: 4) {
                     ForEach(favorites.items) { favorite in
@@ -224,8 +231,10 @@ struct BookmarksBar: View {
                     }
                 }
                 .padding(.horizontal, 12)
+                .frame(minWidth: geo.size.width)
             }
             .scrollIndicators(.hidden)
+            }
             .frame(height: 32)
         }
     }

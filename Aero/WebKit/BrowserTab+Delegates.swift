@@ -28,6 +28,7 @@ extension BrowserTab: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if webView.url?.host != faviconHost { favicon = nil }
         applySavedZoom()
+        MediaHub.shared.update(id, nil)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

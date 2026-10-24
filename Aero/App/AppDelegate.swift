@@ -10,6 +10,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UpdateManager.shared.checkIfDue()
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let state = WindowCoordinator.shared.activeState ?? WindowCoordinator.shared.openWindow().state
+        for url in urls { state.tabs.newTab(url: url) }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -13,6 +13,7 @@ final class TabManager: ObservableObject, TabHost {
 
     private var recentlyClosed: [URL] = []
     private var mru: [UUID] = []
+    var onLeaveTab: ((BrowserTab) -> Void)?
     private let recentlyClosedLimit = 25
 
     var selectedTab: BrowserTab? { tabs.first { $0.id == selectedID } }
@@ -44,6 +45,34 @@ final class TabManager: ObservableObject, TabHost {
     }
 
     // MARK: Tab commands
+
+    enum ArrangeKey { case title, website }
+
+    func arrange(by key: ArrangeKey) {
+        let list = unpinnedTabs
+        let sorted = list.sorted {
+            switch key {
+            case .title: return $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending
+            case .website: return ($0.url?.host ?? "") < ($1.url?.host ?? "")
+            }
+        }
+        let ids = Set(list.map(\.id))
+        tabs = tabs.filter { !ids.contains($0.id) } + sorted
+    }
+
+    func closeTabs(before tab: BrowserTab) {
+        let list = unpinnedTabs
+        guard let index = list.firstIndex(where: { $0.id == tab.id }) else { return }
+        list[..<index].forEach { closeTab($0) }
+    }
+
+    func closeTabs(after tab: BrowserTab) {
+        let list = unpinnedTabs
+        guard let index = list.firstIndex(where: { $0.id == tab.id }) else { return }
+        list[(index + 1)...].forEach { closeTab($0) }
+    }
+
+    func closeAll() { for tab in tabs { closeTab(tab) } }
 
     func duplicate(_ tab: BrowserTab) {
         newTab(url: tab.url, select: true, insertAfter: tab)
@@ -146,7 +175,7 @@ final class TabManager: ObservableObject, TabHost {
     }
 
     func selectTab(_ tab: BrowserTab) {
-        if let previous = selectedTab, previous.id != tab.id { previous.captureSnapshot() }
+        if let previous = selectedTab, previous.id != tab.id { previous.captureSnapshot(); onLeaveTab?(previous) }
         selectedID = tab.id
         mru.removeAll { $0 == tab.id }
         mru.insert(tab.id, at: 0)

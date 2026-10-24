@@ -1,30 +1,54 @@
 import SwiftUI
 
-/// Horizontal layout, row 2: same pieces as the sidebar, laid out like Safari but compact.
+/// Horizontal layout, row 2 (like Safari): back/forward pill, centered address pill, and a
+/// trailing pill with Downloads, Share and New Tab.
 struct BrowserToolbar: View {
     @ObservedObject var tab: BrowserTab
     @ObservedObject var state: BrowserState
+    @ObservedObject private var downloads = DownloadManager.shared
+    @State private var downloadsOpen = false
 
-    private var size: SidebarSize { state.sidebarSize }
-    private var height: CGFloat { size.controlHeight - 6 }
+    private let height: CGFloat = 36
 
     var body: some View {
-        GlassGroup(spacing: 12) {
-            HStack(spacing: 8) {
-                NavigationPill(tab: tab, height: height, iconSize: size.iconSize - 1)
-                Spacer(minLength: 8)
-                OmniboxView(tab: tab, state: state, height: height)
-                    .frame(minWidth: 260, maxWidth: 620)
-                    .zIndex(5)
-                Spacer(minLength: 8)
-                UpdateNowButton(compact: true)
-                DownloadsButton(diameter: height, iconSize: size.iconSize + 1)
-                ShareButton(url: tab.url, diameter: height, iconSize: size.iconSize - 1)
-            }
+        HStack(spacing: 10) {
+            NavigationPill(tab: tab, height: height, iconSize: 14)
+            Spacer(minLength: 8)
+            OmniboxView(tab: tab, state: state, height: height)
+                .frame(minWidth: 260, maxWidth: 640)
+                .zIndex(5)
+            Spacer(minLength: 8)
+            UpdateNowButton(compact: true)
+            trailingPill
         }
         .padding(.horizontal, 12)
-        .frame(height: height + 10)
+        .frame(height: 46)
         .overlay(alignment: .bottom) { LoadingBar(tab: tab) }
+    }
+
+    private var trailingPill: some View {
+        HStack(spacing: 0) {
+            pillButton("arrow.down.circle", "Downloads") { downloadsOpen.toggle() }
+                .popover(isPresented: $downloadsOpen, arrowEdge: .bottom) { DownloadsPopover(manager: downloads) }
+            if let url = tab.url, url.scheme?.hasPrefix("http") == true {
+                ShareLink(item: url) { icon("square.and.arrow.up") }.buttonStyle(RubberButtonStyle()).help("Share")
+            } else {
+                icon("square.and.arrow.up").opacity(0.35)
+            }
+            pillButton("plus", "New Tab (⌘T)") { state.newTab() }
+        }
+        .glass(in: Capsule(), interactive: true)
+    }
+
+    private func pillButton(_ symbol: String, _ help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { icon(symbol) }.buttonStyle(RubberButtonStyle()).help(help)
+    }
+
+    private func icon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 14, weight: .medium))
+            .frame(width: 38, height: height)
+            .contentShape(Rectangle())
     }
 }
 

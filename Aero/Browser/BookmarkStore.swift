@@ -1,11 +1,3 @@
-//
-//  BookmarkNode.swift
-//  Aero
-//
-//  Created by Mohak Bhatt on 24/10/26.
-//
-
-
 import Foundation
 import Combine
 
@@ -39,6 +31,8 @@ final class BookmarkStore: ObservableObject {
     func addFolder(title: String, to folder: UUID? = nil) {
         insert(BookmarkNode(title: title, url: nil, iconPNG: nil, children: []), into: folder)
     }
+
+    func addNode(_ node: BookmarkNode) { items.append(node) }
 
     func rename(_ id: UUID, to title: String) { update(id) { $0.title = title } }
 
