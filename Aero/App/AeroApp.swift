@@ -47,6 +47,7 @@ struct AeroCommands: Commands {
         }
         CommandGroup(after: .help) {
             Button("Welcome Tour…") { Onboarding.show() }
+            Button("What’s New in Aero") { WhatsNewWindow.show() }
         }
 
         // MARK: File
@@ -55,8 +56,15 @@ struct AeroCommands: Commands {
             Button("New Tab") { state?.newTab() }.keyboardShortcut("t", modifiers: .command)
             Button("Open File…") { state?.openFile() }.keyboardShortcut("o", modifiers: .command)
             Button("Open Location…") { state?.requestOmniboxFocus() }.keyboardShortcut("l", modifiers: .command)
-            Menu("Import Bookmarks From") {
-                ForEach(Importer.Source.allCases) { source in Button(source.rawValue) { Importer.run(source) } }
+            Button("Import From Another Browser…") { ImportWindow.show() }
+            Menu("More Import Options") {
+                Menu("Bookmarks From") {
+                    ForEach(Importer.Source.allCases) { source in Button(source.rawValue) { Importer.run(source) } }
+                }
+                Menu("History From") {
+                    ForEach(Importer.Source.allCases.filter { $0 != .html }) { source in Button(source.rawValue) { Importer.runHistory(source) } }
+                }
+                Button("Passwords From CSV…") { Importer.runPasswords() }
             }
         }
 
@@ -82,9 +90,17 @@ struct AeroCommands: Commands {
 
         // MARK: View
         CommandGroup(after: .toolbar) {
-            Button("Show or Hide Bookmarks Bar") { state?.toggleBookmarksBar() }.keyboardShortcut("b", modifiers: [.command, .shift])
-            Button("Use Vertical or Horizontal Tabs") { state?.toggleLayout() }.keyboardShortcut("v", modifiers: [.command, .option])
             Button("Show or Hide Sidebar") { state?.toggleSidebar() }.keyboardShortcut("s", modifiers: [.command, .control])
+            Button("Show or Hide Activities") { state?.activitiesDrawerOpen.toggle() }.keyboardShortcut("a", modifiers: [.command, .control])
+            Toggle("Interface Haptics", isOn: Binding(
+                get: { UserDefaults.standard.object(forKey: "aero.haptics.enabled") as? Bool ?? true },
+                set: { UserDefaults.standard.set($0, forKey: "aero.haptics.enabled") }))
+            Button("Customise Browser…") { state?.engineEditing = true }
+            Menu("Aero Engine Layout") {
+                ForEach(BrowserLayout.Preset.shippingCases) { preset in
+                    Button(preset.title) { state?.applyLayout(preset) }
+                }
+            }
             Menu("Sidebar Size") {
                 ForEach([("Automatic", 0), ("Small", 1), ("Medium", 2), ("Large", 3)], id: \.1) { item in
                     Toggle(item.0, isOn: Binding(get: { state?.sidebarSizeChoice == item.1 },
@@ -170,6 +186,7 @@ struct AeroCommands: Commands {
             .keyboardShortcut("p", modifiers: [.command, .shift])
             Button("Duplicate Tab") { state?.duplicateTab() }
             Button("Move Tab to New Window") { state?.moveSelectedTabToNewWindow() }
+            Button("Exit Split View") { state?.tabs.exitSplit() }
             Button("Merge All Windows") { if let state { WindowCoordinator.shared.mergeAll(into: state) } }
             Button("Close Other Tabs") { state?.closeOtherTabs() }.keyboardShortcut("w", modifiers: [.command, .option])
             Divider()

@@ -19,3 +19,15 @@ Aero.dmg
 Aero.zip
 dmg-staging/
 build/
+
+# Local validation and secrets
+.build/
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
+*.xcresult/
+docs/validation/
+docs/first-batch.patch

@@ -7,28 +7,36 @@
 
 
 import SwiftUI
+import AppKit
 
-/// Back / forward in one interactive glass pill.
+/// Unframed navigation controls sized to match the sidebar toggle.
 struct NavigationPill: View {
     @ObservedObject var tab: BrowserTab
     let height: CGFloat
     let iconSize: CGFloat
+    var vertical = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 0) {
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        layout {
             button("chevron.left", enabled: tab.canGoBack, help: "Back (⌘[)") { tab.goBack() }
-            Rectangle().fill(Color.primary.opacity(0.18)).frame(width: 0.5, height: height * 0.45)
             button("chevron.right", enabled: tab.canGoForward, help: "Forward (⌘])") { tab.goForward() }
         }
-        .glass(in: Capsule(), interactive: true)
     }
 
     private func button(_ symbol: String, enabled: Bool, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: iconSize, weight: .semibold))
+                .font(.system(size: iconSize, weight: .medium))
                 .frame(width: height * 0.95, height: height)
                 .contentShape(Rectangle())
+        }
+        .keyframeAnimator(initialValue: CGFloat(1), trigger: reduceMotion ? 0 : tab.historyNavigationPulse) { view, scale in
+            view.scaleEffect(scale)
+        } keyframes: { _ in
+            CubicKeyframe(1.22, duration: 0.10)
+            SpringKeyframe(1, duration: 0.32, spring: .bouncy)
         }
         .buttonStyle(RubberButtonStyle())
         .opacity(enabled ? 0.9 : 0.3)
@@ -79,14 +87,150 @@ struct ChromeToggleButton: View {
     let iconSize: CGFloat
     let help: String
     let action: () -> Void
+    @EnvironmentObject private var state: BrowserState
+    @State private var optionsOpen = false
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: "sidebar.left")
-                .font(.system(size: iconSize, weight: .medium))
-                .contentShape(Rectangle().inset(by: -8))
+        SidebarNativeButton(iconSize: iconSize, click: action, hold: { optionsOpen = true })
+            .frame(width: 30, height: 30)
+            .accessibilityLabel("Sidebar")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
+            .accessibilityAction(named: "Layout options") { optionsOpen = true }
+            .help(help + ". Hold or force-click for layout options.")
+            .contextMenu { layoutOptions }
+            .popover(isPresented: $optionsOpen) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Browser Layout").font(.headline)
+                    ForEach([BrowserLayout.Preset.classic, .compact]) { preset in
+                        Button {
+                            optionsOpen = false
+                            state.applyLayout(preset)
+                        } label: {
+                            HStack {
+                                Text(preset.title)
+                                Spacer()
+                                if state.layoutPreset == preset { Image(systemName: "checkmark") }
+                            }.frame(width: 190)
+                        }.buttonStyle(.borderless)
+                    }
+                    Divider()
+                    Button("Customise Browser…") { optionsOpen = false; state.engineEditing = true }
+                    Button(state.sidebarVisible ? "Hide Sidebar" : "Show Sidebar") { optionsOpen = false; state.toggleSidebar() }
+                }.padding(16)
+            }
+    }
+    @ViewBuilder private var layoutOptions: some View {
+        ForEach([BrowserLayout.Preset.classic, .compact]) { preset in
+            Button(preset.title) { state.applyLayout(preset) }
         }
-        .buttonStyle(.plain)
-        .help(help)
+        Divider()
+        Button("Customise Browser…") { state.engineEditing = true }
+    }
+}
+
+private struct SidebarNativeButton: NSViewRepresentable {
+    let iconSize: CGFloat
+    let click: () -> Void
+    let hold: () -> Void
+    func makeNSView(context: Context) -> HoldButton {
+        let button = HoldButton()
+        button.isBordered = false
+        button.bezelStyle = .regularSquare
+        button.imagePosition = .imageOnly
+        button.setButtonType(.momentaryChange)
+        button.target = button
+        button.action = #selector(HoldButton.activate)
+        button.setAccessibilityLabel("Sidebar")
+        return button
+    }
+    func updateNSView(_ button: HoldButton, context: Context) {
+        button.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidebar")?
+            .withSymbolConfiguration(.init(pointSize: iconSize, weight: .medium))
+        button.click = click; button.hold = hold
+    }
+    final class HoldButton: NSButton {
+        var click: () -> Void = {}
+        var hold: () -> Void = {}
+        private var holding = false
+        private var holdTimer: Timer?
+        private var pressureTriggered = false
+        override func mouseDown(with event: NSEvent) {
+            holding = true
+            let timer = Timer(timeInterval: 0.45, target: self, selector: #selector(reveal), userInfo: nil, repeats: false)
+            holdTimer = timer
+            RunLoop.main.add(timer, forMode: .eventTracking)
+            pressureTriggered = false
+            super.mouseDown(with: event)
+            holding = false
+            holdTimer?.invalidate(); holdTimer = nil
+        }
+        override func pressureChange(with event: NSEvent) {
+            if event.stage >= 2 { reveal() }
+            super.pressureChange(with: event)
+        }
+        @objc private func reveal() {
+            guard holding, !pressureTriggered, let window,
+                  bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { return }
+            pressureTriggered = true
+            holdTimer?.invalidate()
+            hold()
+        }
+        @objc func activate() {
+            if !pressureTriggered { click() }
+        }
+    }
+}
+
+/// Reuse system buttons so their actions, hover glyphs and accessibility stay native.
+struct VerticalTrafficLights: NSViewRepresentable {
+    func makeNSView(context: Context) -> Host { Host() }
+    func updateNSView(_ view: Host, context: Context) { view.attach() }
+    static func dismantleNSView(_ view: Host, coordinator: ()) { view.restore() }
+    final class Host: NSView {
+        private var originals: [(NSButton, NSView, NSRect, NSView.AutoresizingMask)] = []
+        override var isFlipped: Bool { true }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); if window != nil { attach() } }
+        func attach() {
+            guard let window else { return }
+            let currentButtons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { window.standardWindowButton($0) }
+            if !originals.isEmpty && !currentButtons.allSatisfy({ current in originals.contains { $0.0 === current } }) { restore() }
+            if !originals.isEmpty {
+                for item in originals where item.0.superview !== self { item.0.removeFromSuperview(); addSubview(item.0) }
+                needsLayout = true
+                return
+            }
+            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                guard let button = window.standardWindowButton(type), let parent = button.superview else { continue }
+                originals.append((button, parent, button.frame, button.autoresizingMask))
+                button.removeFromSuperview()
+                button.autoresizingMask = []
+                addSubview(button)
+                button.isHidden = false
+                button.alphaValue = 1
+            }
+            needsLayout = true
+        }
+        override func layout() {
+            super.layout()
+            for (index, item) in originals.enumerated() {
+                let button = item.0
+                button.setFrameOrigin(NSPoint(x: (bounds.width - button.frame.width) / 2, y: 12 + CGFloat(index) * 24))
+            }
+        }
+        func restore() {
+            for (button, parent, frame, mask) in originals {
+                button.removeFromSuperview(); parent.addSubview(button)
+                button.frame = frame; button.autoresizingMask = mask
+            }
+            originals.removeAll()
+        }
+    }
+}
+
+@MainActor enum AeroHaptics {
+    static func perform(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
+        guard UserDefaults.standard.object(forKey: "aero.haptics.enabled") as? Bool ?? true else { return }
+        NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
     }
 }

@@ -29,7 +29,7 @@ struct TabItemView: View {
                         .background(Circle().fill(Color.primary.opacity(hoveringClose ? 0.14 : 0)))
                         .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(RubberButtonStyle())
                 .onHover { hoveringClose = $0 }
                 .help("Close Tab")
             }

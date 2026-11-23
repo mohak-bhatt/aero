@@ -7,6 +7,13 @@ final class WindowCoordinator {
     static let shared = WindowCoordinator()
     private(set) var controllers: [BrowserWindowController] = []
     private var monitor: Any?
+    private var isTerminating = false
+    private var isRestoring = false
+
+    func prepareToTerminate() {
+        saveSessions()
+        isTerminating = true
+    }
 
     var activeState: BrowserState? {
         if let controller = NSApp.keyWindow?.windowController as? BrowserWindowController { return controller.state }
@@ -14,8 +21,8 @@ final class WindowCoordinator {
     }
 
     @discardableResult
-    func openWindow(primary: Bool = false, adopting tab: BrowserTab? = nil, near point: NSPoint? = nil) -> BrowserWindowController {
-        let state = BrowserState(initialTab: tab, isPrimary: primary)
+    func openWindow(primary: Bool = false, adopting tab: BrowserTab? = nil, near point: NSPoint? = nil, restoredSession: SessionSnapshot? = nil) -> BrowserWindowController {
+        let state = BrowserState(initialTab: tab, isPrimary: primary, restoredSession: restoredSession)
         let controller = BrowserWindowController(state: state, isPrimary: primary)
         controllers.append(controller)
         if let window = controller.window {
@@ -25,13 +32,47 @@ final class WindowCoordinator {
                 window.setFrameTopLeftPoint(NSPoint(x: key.frame.minX + 28, y: key.frame.maxY - 28))
             }
         }
+        if let value = restoredSession?.windowFrame, let window = controller.window {
+            let frame = NSRectFromString(value)
+            if frame.origin.x.isFinite, frame.origin.y.isFinite, frame.width.isFinite, frame.height.isFinite,
+               frame.width >= 640, frame.height >= 400,
+               NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
+                window.setFrame(frame, display: false)
+            }
+        }
         controller.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         return controller
     }
 
-    func remove(_ controller: BrowserWindowController) { controllers.removeAll { $0 === controller } }
-    func saveSessions() { controllers.forEach { $0.state.saveSession() } }
+    func restoreWindows() {
+        isRestoring = true
+        defer { isRestoring = false; saveSessions() }
+        if let sessions = ApplicationSessionStore().load(), !sessions.isEmpty {
+            for (index, session) in sessions.enumerated() {
+                openWindow(primary: index == 0, restoredSession: session)
+            }
+            if let active = sessions.firstIndex(where: { $0.wasActiveWindow == true }), controllers.indices.contains(active) {
+                controllers[active].window?.makeKeyAndOrderFront(nil)
+            }
+        } else { openWindow(primary: true) }
+    }
+
+    func remove(_ controller: BrowserWindowController) {
+        controllers.removeAll { $0 === controller }
+        // Closing the final window quits Aero; preserve it for the next launch.
+        if !controllers.isEmpty { saveSessions() }
+    }
+
+    func saveSessions() {
+        guard !isTerminating, !isRestoring, !controllers.isEmpty else { return }
+        ApplicationSessionStore().save(controllers.map { controller in
+            var snapshot = controller.state.tabs.snapshot()
+            snapshot.windowFrame = controller.window.map { NSStringFromRect($0.frame) }
+            snapshot.wasActiveWindow = controller.window?.isKeyWindow == true
+            return snapshot
+        })
+    }
 
     func mergeAll(into state: BrowserState) {
         for controller in controllers where controller.state !== state {

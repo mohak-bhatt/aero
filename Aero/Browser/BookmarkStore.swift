@@ -13,14 +13,16 @@ struct BookmarkNode: Codable, Identifiable, Equatable {
 @MainActor
 final class BookmarkStore: ObservableObject {
     static let shared = BookmarkStore()
+    private let defaults: UserDefaults
     private let key = "aero.bookmarks.v1"
 
     @Published var items: [BookmarkNode] = [] {
-        didSet { if let data = try? JSONEncoder().encode(items) { UserDefaults.standard.set(data, forKey: key) } }
+        didSet { if let data = try? JSONEncoder().encode(items) { defaults.set(data, forKey: key) } }
     }
 
-    private init() {
-        if let data = UserDefaults.standard.data(forKey: key),
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode([BookmarkNode].self, from: data) { items = decoded }
     }
 
@@ -40,7 +42,9 @@ final class BookmarkStore: ObservableObject {
 
     func move(_ id: UUID, to folder: UUID?) {
         guard id != folder, let node = Self.find(items, id) else { return }
-        if let folder, Self.contains(node, folder) { return }
+        if let folder {
+            guard Self.find(items, folder)?.isFolder == true, !Self.contains(node, folder) else { return }
+        }
         guard let taken = take(id) else { return }
         insert(taken, into: folder)
     }
@@ -72,7 +76,7 @@ final class BookmarkStore: ObservableObject {
     // MARK: Tree helpers
 
     private func insert(_ node: BookmarkNode, into folder: UUID?) {
-        guard let folder else { items.append(node); return }
+        guard let folder, Self.find(items, folder)?.isFolder == true else { items.append(node); return }
         var copy = items
         if Self.mutate(&copy, folder, { $0.children = ($0.children ?? []) + [node] }) { items = copy } else { items.append(node) }
     }

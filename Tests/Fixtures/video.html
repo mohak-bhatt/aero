@@ -1,0 +1,11 @@
+<!doctype html><meta charset="utf-8"><title>Aero Video Fixture</title>
+<h1>Live video sidebar test</h1>
+<button onclick="start()">Start test video</button>
+<video controls muted playsinline style="display:block;width:480px;height:270px"></video>
+<script>
+const canvas=document.createElement('canvas');canvas.width=480;canvas.height=270;
+const ctx=canvas.getContext('2d');let frame=0;
+function draw(){ctx.fillStyle='#17233f';ctx.fillRect(0,0,480,270);ctx.fillStyle='#7bbcff';ctx.beginPath();ctx.arc(240+100*Math.sin(frame/30),135,36,0,Math.PI*2);ctx.fill();ctx.fillStyle='white';ctx.font='20px sans-serif';ctx.fillText('Aero · Live video fixture',24,40);frame++;requestAnimationFrame(draw)}
+function start(){const v=document.querySelector('video');v.srcObject=canvas.captureStream(24);v.play();}
+draw();
+</script>

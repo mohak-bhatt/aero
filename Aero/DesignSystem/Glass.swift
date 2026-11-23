@@ -23,17 +23,8 @@ private func makeGlass(tint: Color?, interactive: Bool) -> Glass {
 
 extension View {
     /// Liquid Glass on macOS 26+, a material-based approximation before that.
-    @ViewBuilder
-    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            self.glassEffect(makeGlass(tint: tint, interactive: interactive), in: shape)
-        } else {
-            glassFallback(in: shape, tint: tint)
-        }
-        #else
-        glassFallback(in: shape, tint: tint)
-        #endif
+    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil, interactive: Bool = true) -> some View {
+        modifier(AeroGlassSurface(shape: shape, tint: tint, interactive: interactive))
     }
 
     private func glassFallback<S: InsettableShape>(in shape: S, tint: Color?) -> some View {
@@ -62,6 +53,21 @@ extension View {
     }
 }
 
+/// Strength changes only the glass backing; labels and controls remain fully opaque.
+private struct AeroGlassSurface<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let tint: Color?
+    let interactive: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.background(shape.fill(Color(nsColor: .windowBackgroundColor)))
+        } else {
+            content.glassEffect(makeGlass(tint: tint, interactive: interactive), in: shape)
+        }
+    }
+}
+
 // MARK: - Window material
 
 struct VisualEffectView: NSViewRepresentable {
@@ -85,7 +91,7 @@ struct VisualEffectView: NSViewRepresentable {
 /// Shared backdrop for the tab row and toolbar so they read as one attached surface.
 struct ChromeBackground: View {
     var body: some View {
-        VisualEffectView(material: .headerView)
+        Color.clear.glass(in: Rectangle(), interactive: false)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(Color.primary.opacity(0.10)).frame(height: 0.5)
             }
@@ -108,7 +114,7 @@ struct ChromeIconButton: View {
                 .frame(width: 30, height: 28)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RubberButtonStyle())
         .foregroundStyle(.primary)
         .opacity(enabled ? 0.85 : 0.3)
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -124,11 +130,13 @@ struct ChromeIconButton: View {
 
 /// Squashes and stretches on press, like iOS 26 glass buttons.
 struct RubberButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(x: configuration.isPressed ? 1.10 : 1,
-                         y: configuration.isPressed ? 0.93 : 1)
-            .animation(.spring(response: 0.28, dampingFraction: 0.5), value: configuration.isPressed)
+            .scaleEffect(x: configuration.isPressed && !reduceMotion ? 1.10 : 1,
+                         y: configuration.isPressed && !reduceMotion ? 0.93 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.5), value: configuration.isPressed)
+
     }
 }
 

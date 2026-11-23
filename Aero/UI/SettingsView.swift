@@ -5,9 +5,11 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralPane().tabItem { Label("General", systemImage: "gearshape") }
+            EngineSetupView().tabItem { Label("Aero Engine", systemImage: "slider.horizontal.3") }
             AppearancePane().tabItem { Label("Appearance", systemImage: "sidebar.left") }
             SearchPane().tabItem { Label("Search", systemImage: "magnifyingglass") }
             WebsitesPane().tabItem { Label("Websites", systemImage: "globe") }
+            PasswordsPane().tabItem { Label("Passwords", systemImage: "key") }
             PrivacyPane().tabItem { Label("Privacy", systemImage: "hand.raised") }
         }
         .frame(width: 540, height: 440)
@@ -17,7 +19,6 @@ struct SettingsView: View {
 private struct GeneralPane: View {
     @AppStorage(Pref.engineKey) private var engine = SearchEngine.google.rawValue
     @AppStorage(Pref.domainOnlyKey) private var domainOnly = true
-    @AppStorage(Pref.barKey) private var bookmarksBar = true
 
     var body: some View {
         Form {
@@ -25,7 +26,6 @@ private struct GeneralPane: View {
                 ForEach(SearchEngine.allCases) { Text($0.name).tag($0.rawValue) }
             }
             Toggle("Show only the website domain in the address bar", isOn: $domainOnly)
-            Toggle("Show bookmarks bar (horizontal tabs)", isOn: $bookmarksBar)
             Section("Default browser") {
                 HStack {
                     Text(DefaultBrowser.isDefault ? "Aero is your default browser" : "Aero is not your default browser")
@@ -51,17 +51,12 @@ private struct GeneralPane: View {
 }
 
 private struct AppearancePane: View {
-    @AppStorage(Pref.layoutKey) private var layout = "horizontal"
     @AppStorage(Pref.sidebarSizeKey) private var sizeChoice = 0
     @AppStorage(Pref.tintKey) private var tint = true
-    @AppStorage(Pref.blurKey) private var blur = 0.85
+    @AppStorage("aero.glass.intensity") private var blur = 0.85
 
     var body: some View {
         Form {
-            Picker("Tab layout", selection: $layout) {
-                Text("Horizontal tabs").tag("horizontal")
-                Text("Vertical tabs").tag("vertical")
-            }
             Picker("Sidebar size", selection: $sizeChoice) {
                 Text("Automatic (system setting)").tag(0)
                 Text("Small").tag(1)
@@ -70,8 +65,9 @@ private struct AppearancePane: View {
             }
             Toggle("Tint the sidebar with the website's colour", isOn: $tint)
             VStack(alignment: .leading) {
-                Text("Background blur")
-                Slider(value: $blur, in: 0.1...1) { Text("Background blur") } minimumValueLabel: { Text("Clear") } maximumValueLabel: { Text("Frosted") }
+                Text("Background transparency")
+                Slider(value: $blur, in: 0...1) { Text("Background transparency") } minimumValueLabel: { Text("Clear") } maximumValueLabel: { Text("Strong") }
+                    .labelsHidden().accessibilityLabel("Background transparency")
             }
         }
         .formStyle(.grouped)
@@ -120,7 +116,7 @@ private struct WebsitesPane: View {
                             Spacer()
                             Text("\(Int((zooms.zooms[host] ?? 1) * 100))%").foregroundStyle(.secondary)
                             Button { zooms.remove(host: host) } label: { Image(systemName: "xmark.circle.fill") }
-                                .buttonStyle(.plain).foregroundStyle(.secondary)
+                                .buttonStyle(RubberButtonStyle()).foregroundStyle(.secondary)
                         }
                     }
                     Button("Remove All") { zooms.removeAll() }
@@ -148,5 +144,97 @@ private struct PrivacyPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+
+private struct PasswordsPane: View {
+    @ObservedObject private var store = PasswordStore.shared
+    @State private var revealed: [String: String] = [:]
+
+    var body: some View {
+        Form {
+            Section("Saved passwords") {
+                if store.credentials.isEmpty {
+                    Text("Nothing saved yet. Aero offers to save passwords when you sign in to a website.").foregroundStyle(.secondary)
+                }
+                ForEach(store.credentials) { credential in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(credential.host)
+                            Text(credential.username.isEmpty ? "No username" : credential.username).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if let password = revealed[credential.id] {
+                            Text(password).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                        }
+                        Button(revealed[credential.id] == nil ? "Show" : "Hide") {
+                            if revealed[credential.id] != nil { revealed[credential.id] = nil; return }
+                            Task {
+                                if await store.authenticate(reason: "Show the password for \(credential.host)") {
+                                    revealed[credential.id] = store.password(host: credential.host, username: credential.username)
+                                }
+                            }
+                        }
+                        Button { store.delete(credential); revealed[credential.id] = nil } label: { Image(systemName: "trash") }
+                            .buttonStyle(RubberButtonStyle()).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Section("Import") {
+                Button("Import Passwords from CSV…") { Importer.runPasswords() }
+                Text("Export a CSV from your old browser or password manager, import it here, then delete the file.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+/// Shared first-run and settings editor. Each control changes a working browser setting.
+struct EngineSetupView: View {
+    @State private var layout = BrowserLayoutStore().load() ?? BrowserLayout()
+    @AppStorage(Pref.tintKey) private var tint = true
+    @AppStorage("aero.haptics.enabled") private var haptics = true
+    var body: some View {
+        Form {
+            Section("Make Aero yours") {
+                Button("Open Browser Canvas") {
+                    WindowCoordinator.shared.activeState?.engineEditing = true
+                    NSApp.keyWindow?.orderOut(nil)
+                    WindowCoordinator.shared.activeState?.tabs.selectedTab?.webView.window?.makeKeyAndOrderFront(nil)
+                }
+
+                Picker("Starting layout", selection: $layout.preset) {
+                    ForEach(BrowserLayout.Preset.shippingCases) { Text($0.title).tag($0) }
+                }.onValueChange(of: layout.preset) { preset in
+                    layout = BrowserLayout.configuration(for: preset)
+                    apply()
+                }
+                Text("Classic keeps the sidebar visible. Focus reveals it on demand. Compact Vertical keeps tabs in a narrow icon rail.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Sidebar") {
+                Toggle("Keep sidebar visible", isOn: $layout.sidebarPinned)
+                    .onValueChange(of: layout.sidebarPinned) { _ in apply() }
+                LabeledContent(layout.preset == .compact ? "Expanded width" : "Width", value: "\(Int(layout.sidebarWidth)) pt")
+                Slider(value: $layout.sidebarWidth, in: 200...420, step: 10)
+                    .onValueChange(of: layout.sidebarWidth) { _ in apply() }
+                    .accessibilityLabel("Sidebar width")
+                    .disabled(layout.preset == .compact)
+                Toggle("Match website colour", isOn: $tint)
+            }
+            Section("Interaction") { Toggle("Haptic feedback", isOn: $haptics) }
+        }.formStyle(.grouped)
+    }
+    private func apply() {
+        let value = layout.validated()
+        BrowserLayoutStore().save(value)
+        if let state = WindowCoordinator.shared.activeState {
+            state.layoutPreset = value.preset
+            state.sidebarWidth = value.sidebarWidth
+            state.sidebarVisible = value.sidebarPinned
+            state.sidebarPeeking = false
+        }
     }
 }

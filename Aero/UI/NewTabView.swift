@@ -65,7 +65,7 @@ struct NewTabView: View {
             }
             .buttonStyle(RubberButtonStyle())
             .help("Customize Home")
-            .padding(.top, state.layout == .vertical ? max(10, state.rowHeight / 2 - 18) : 14)
+            .padding(.top, max(10, state.rowHeight / 2 - 18))
             .padding(.trailing, 16)
             .popover(isPresented: $customizing, arrowEdge: .bottom) { customizeMenu }
         }
@@ -81,6 +81,11 @@ struct NewTabView: View {
         }
         .padding(.horizontal, 18).frame(height: 48).frame(maxWidth: .infinity)
         .glass(in: Capsule())
+        .anchorPreference(key: OmniboxFrameKey.self, value: .bounds) { ["home": $0] }
+        .onValueChange(of: query) { state.updateSuggestions($0, source: .home) }
+        .onKeyPress(.downArrow) { state.moveSuggestion(by: 1); return .handled }
+        .onKeyPress(.upArrow) { state.moveSuggestion(by: -1); return .handled }
+        .onDisappear { state.clearSuggestions() }
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -115,7 +120,7 @@ struct NewTabView: View {
                         }
                         .font(.system(size: 12.5)).padding(.horizontal, 14).frame(height: 32).contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(RubberButtonStyle())
                 }
             }
             .glass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -166,7 +171,7 @@ private struct SiteTile: View {
             VStack(spacing: 6) {
                 Group {
                     if let iconData, let image = NSImage(data: iconData) {
-                        Image(nsImage: image).resizable().interpolation(.high).frame(width: 28, height: 28)
+                        FaviconImage(image: image).frame(width: 28, height: 28)
                     } else {
                         Text(letter).font(.system(size: 22, weight: .semibold, design: .rounded))
                             .foregroundStyle(Color(hue: hue, saturation: 0.55, brightness: 0.85))

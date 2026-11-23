@@ -31,29 +31,30 @@ enum Onboarding {
 struct OnboardingView: View {
     let finish: () -> Void
     @State private var step = 0
-    @AppStorage(Pref.layoutKey) private var layout = "horizontal"
     @AppStorage(Pref.sidebarSizeKey) private var sizeChoice = 0
     @AppStorage(Pref.engineKey) private var engine = SearchEngine.google.rawValue
     @AppStorage(Pref.domainOnlyKey) private var domainOnly = true
     @AppStorage(Pref.tintKey) private var tint = true
-    @AppStorage(Pref.barKey) private var bar = true
     @AppStorage(Pref.blurKey) private var blur = 0.85
     @State private var madeDefault = DefaultBrowser.isDefault
 
-    private let total = 9
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let total = 11
 
     var body: some View {
         VStack(spacing: 0) {
             Group {
                 switch step {
                 case 0: welcome
-                case 1: layoutStep
-                case 2: sizeStep
-                case 3: searchStep
-                case 4: lookStep
-                case 5: importStep
-                case 6: defaultStep
-                case 7: organizeStep
+                case 1: featureDemo("Your media stays with you", "Play a song or video, then switch tabs. Playback stays within reach in Live Activities.", symbol: "waveform", split: false)
+                case 2: featureDemo("Two pages. One workspace.", "Split tabs keep related pages together. Drag the divider to resize; double-click to swap sides.", symbol: "rectangle.split.2x1", split: true)
+                case 3: EngineSetupView()
+                case 4: sizeStep
+                case 5: searchStep
+                case 6: lookStep
+                case 7: importStep
+                case 8: defaultStep
+                case 9: organizeStep
                 default: shortcutsStep
                 }
             }
@@ -67,7 +68,30 @@ struct OnboardingView: View {
         }
         .frame(width: 620, height: 560)
         .background(VisualEffectView(material: .underWindowBackground).ignoresSafeArea())
-        .animation(.easeInOut(duration: 0.25), value: step)
+        .animation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.88), value: step)
+    }
+
+    private func featureDemo(_ title: String, _ detail: String, symbol: String, split: Bool) -> some View {
+        VStack(spacing: 24) {
+            Text(title).font(.system(size: 28, weight: .semibold, design: .rounded))
+            TimelineView(.animation(minimumInterval: 1.0 / 24, paused: reduceMotion)) { context in
+                let phase = reduceMotion ? 0 : sin(context.date.timeIntervalSinceReferenceDate * 0.8)
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 16).fill(Color.clear).glass(in: RoundedRectangle(cornerRadius: 16), interactive: false)
+                        .frame(width: 74)
+                        .overlay(Image(systemName: split ? "sidebar.left" : "music.note").font(.title).foregroundStyle(.orange))
+                    RoundedRectangle(cornerRadius: 16).fill(Color.accentColor.opacity(0.12))
+                        .overlay(Image(systemName: symbol).font(.system(size: 44)).offset(y: phase * 4))
+                    if split {
+                        RoundedRectangle(cornerRadius: 16).fill(Color.orange.opacity(0.12))
+                            .frame(width: 130 + phase * 16)
+                            .overlay(Image(systemName: "doc.text").font(.largeTitle))
+                    }
+                }.padding(12).frame(height: 200)
+                    .glass(in: RoundedRectangle(cornerRadius: 24))
+            }.accessibilityHidden(true)
+            Text(detail).multilineTextAlignment(.center).foregroundStyle(.secondary)
+        }
     }
 
     // MARK: Steps
@@ -80,24 +104,6 @@ struct OnboardingView: View {
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
         }
         .padding(.top, 40)
-    }
-
-    private var layoutStep: some View {
-        VStack(spacing: 22) {
-            header("rectangle.split.2x1", "Choose your tab layout", "You can switch any time with ⌥⌘V.")
-            HStack(spacing: 16) {
-                OptionCard(selected: layout == "horizontal", action: { layout = "horizontal" }) {
-                    LayoutPreview(vertical: false)
-                    Text("Horizontal tabs").font(.headline)
-                    Text("Tabs along the top, like Safari").font(.caption).foregroundStyle(.secondary)
-                }
-                OptionCard(selected: layout == "vertical", action: { layout = "vertical" }) {
-                    LayoutPreview(vertical: true)
-                    Text("Vertical tabs").font(.headline)
-                    Text("A sidebar with pins and favorites").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-        }
     }
 
     private var sizeStep: some View {
@@ -154,29 +160,13 @@ struct OnboardingView: View {
                 Slider(value: $blur, in: 0.1...1) { Text("Background blur") } minimumValueLabel: { Text("Clear").font(.caption) } maximumValueLabel: { Text("Frosted").font(.caption) }
                 Text("Background blur").font(.caption).foregroundStyle(.secondary)
             }
-            HStack(spacing: 16) {
-                OptionCard(selected: bar, action: { bar = true }) {
-                    Image(systemName: "bookmark").font(.system(size: 22)); Text("Show bookmarks bar").font(.system(size: 13, weight: .medium))
-                }
-                OptionCard(selected: !bar, action: { bar = false }) {
-                    Image(systemName: "bookmark.slash").font(.system(size: 22)); Text("Hide bookmarks bar").font(.system(size: 13, weight: .medium))
-                }
-            }
         }
     }
 
     private var importStep: some View {
         VStack(spacing: 18) {
             header("square.and.arrow.down", "Bring your bookmarks", "Import from the browser you used before — or skip and do it later in File → Import.")
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                ForEach(Importer.Source.allCases) { source in
-                    OptionCard(selected: false, action: { Importer.run(source) }) {
-                        Image(systemName: source.symbol).font(.system(size: 20)).frame(height: 24)
-                        Text(source.rawValue).font(.system(size: 12, weight: .medium)).multilineTextAlignment(.center)
-                    }
-                }
-            }
-            Text("Passwords and extensions can't be imported yet.").font(.caption).foregroundStyle(.secondary)
+            ImportView(compact: true)
         }
     }
 
@@ -286,35 +276,5 @@ private struct OptionCard<Content: View>: View {
                 .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(RubberButtonStyle())
-    }
-}
-
-private struct LayoutPreview: View {
-    let vertical: Bool
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.08))
-            if vertical {
-                HStack(spacing: 5) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Capsule().fill(Color.primary.opacity(0.25)).frame(height: 8)
-                        HStack(spacing: 3) { ForEach(0..<4, id: \.self) { _ in RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.22)).frame(height: 10) } }
-                        ForEach(0..<3, id: \.self) { _ in RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.14)).frame(height: 9) }
-                    }
-                    .frame(width: 52)
-                    RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.06))
-                }
-                .padding(8)
-            } else {
-                VStack(spacing: 5) {
-                    HStack(spacing: 3) { ForEach(0..<4, id: \.self) { _ in RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.2)).frame(height: 9) } }
-                    Capsule().fill(Color.primary.opacity(0.25)).frame(height: 8)
-                    RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.06))
-                }
-                .padding(8)
-            }
-        }
-        .frame(height: 100)
     }
 }

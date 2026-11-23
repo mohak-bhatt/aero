@@ -8,7 +8,7 @@ struct ReleaseInfo: Equatable {
     let assetURL: URL?
 }
 
-/// Checks GitHub Releases for a newer build and can replace the running app with it.
+/// Checks GitHub Releases and opens the trusted release page for manual updates.
 @MainActor
 final class UpdateManager: ObservableObject {
     static let shared = UpdateManager()
@@ -17,7 +17,6 @@ final class UpdateManager: ObservableObject {
     nonisolated static let repo = "mohak-bhatt/aero"
 
     enum Status: Equatable { case idle, checking, upToDate, available, installing, failed(String) }
-    private enum Failure: Error { case noApp, commandFailed }
 
     @Published private(set) var status: Status = .idle
     @Published private(set) var release: ReleaseInfo?
@@ -55,54 +54,11 @@ final class UpdateManager: ObservableObject {
         }
     }
 
-    /// Downloads the release zip, swaps the app bundle once Aero quits, and relaunches.
-    /// Falls back to opening the release page if the app can't replace itself (e.g. sandboxed).
+    /// Manual updates until a signed, verified installer with rollback is integrated.
     func install() {
-        guard let release, status == .available else { return }
-        guard let asset = release.assetURL else { NSWorkspace.shared.open(release.pageURL); return }
-        status = .installing
-        Task {
-            do {
-                let (downloaded, _) = try await URLSession.shared.download(from: asset)
-                let work = FileManager.default.temporaryDirectory.appendingPathComponent("AeroUpdate-\(UUID().uuidString)")
-                try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-                let zip = work.appendingPathComponent("Aero.zip")
-                try FileManager.default.moveItem(at: downloaded, to: zip)
-                try await Task.detached { try Self.run("/usr/bin/ditto", ["-x", "-k", zip.path, work.path]) }.value
-
-                guard let app = try FileManager.default.contentsOfDirectory(at: work, includingPropertiesForKeys: nil)
-                    .first(where: { $0.pathExtension == "app" }) else { throw Failure.noApp }
-
-                let target = Bundle.main.bundleURL.path
-                let script = work.appendingPathComponent("update.sh")
-                let body = """
-                #!/bin/sh
-                while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.3; done
-                rm -rf "\(target)"
-                cp -R "\(app.path)" "\(target)"
-                xattr -dr com.apple.quarantine "\(target)" 2>/dev/null
-                open "\(target)"
-                """
-                try body.write(to: script, atomically: true, encoding: .utf8)
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/sh")
-                process.arguments = [script.path]
-                try process.run()
-                NSApp.terminate(nil)
-            } catch {
-                status = .available
-                NSWorkspace.shared.open(release.pageURL)
-            }
-        }
-    }
-
-    nonisolated private static func run(_ path: String, _ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        try process.run()
-        process.waitUntilExit()
-        if process.terminationStatus != 0 { throw Failure.commandFailed }
+        guard let release, status == .available,
+              UpdatePolicy.isTrustedReleasePage(release.pageURL) else { return }
+        NSWorkspace.shared.open(release.pageURL)
     }
 
     nonisolated static func fetchLatest() async throws -> ReleaseInfo? {
@@ -110,11 +66,15 @@ final class UpdateManager: ObservableObject {
         guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases?per_page=1") else { return nil }
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
         guard let list = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
               let first = list.first,
               let tag = first["tag_name"] as? String,
               let page = (first["html_url"] as? String).flatMap(URL.init(string:)) else { return nil }
+        guard UpdatePolicy.isTrustedReleasePage(page) else { throw URLError(.badURL) }
         let assets = first["assets"] as? [[String: Any]] ?? []
         let zip = assets.first { ($0["name"] as? String)?.hasSuffix(".zip") == true }
             .flatMap { ($0["browser_download_url"] as? String).flatMap(URL.init(string:)) }

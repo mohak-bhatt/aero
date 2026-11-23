@@ -2,8 +2,10 @@ import SwiftUI
 import AppKit
 
 struct OmniboxFrameKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>? = nil
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = nextValue() ?? value }
+    static var defaultValue: [String: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { $1 }
+    }
 }
 
 /// Address pill: page menu, centered domain (native NSTextField), reload. Used by the sidebar
@@ -13,14 +15,17 @@ struct OmniboxView: View {
     @ObservedObject var state: BrowserState
     @ObservedObject private var manager: TabManager
     var height: CGFloat
+    var showsExtensions = true
 
     @State private var editing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(tab: BrowserTab, state: BrowserState, height: CGFloat) {
+    init(tab: BrowserTab, state: BrowserState, height: CGFloat, showsExtensions: Bool = true) {
         _tab = ObservedObject(wrappedValue: tab)
         _state = ObservedObject(wrappedValue: state)
         _manager = ObservedObject(wrappedValue: state.tabs)
         self.height = height
+        self.showsExtensions = showsExtensions
     }
 
     var body: some View {
@@ -38,11 +43,13 @@ struct OmniboxView: View {
                 onEnd: { state.clearSuggestions() })
             Button { tab.reloadOrStop() } label: {
                 Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
+                    .contentTransition(.symbolEffect(.replace))
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: tab.isLoading)
                     .font(.system(size: 13, weight: .medium))
                     .frame(width: 32, height: 30)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(RubberButtonStyle())
             .opacity(0.85)
             .help(tab.isLoading ? "Stop" : "Reload (⌘R)")
         }
@@ -55,7 +62,7 @@ struct OmniboxView: View {
                 .allowsHitTesting(false)
         }
         .animation(.easeOut(duration: 0.12), value: editing)
-        .anchorPreference(key: OmniboxFrameKey.self, value: .bounds) { $0 }
+        .anchorPreference(key: OmniboxFrameKey.self, value: .bounds) { ["omnibox": $0] }
     }
 }
 
@@ -73,7 +80,7 @@ private struct PageMenuButton: View {
                 .frame(width: 32, height: 30)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RubberButtonStyle())
         .opacity(0.85)
         .help("Page Menu")
         .popover(isPresented: $open, arrowEdge: .bottom) {
@@ -151,8 +158,10 @@ struct OmniboxTextField: NSViewRepresentable {
         if isEditing != editingNow { DispatchQueue.main.async { isEditing = editingNow } }
         if focusRequest {
             DispatchQueue.main.async {
-                focusRequest = false
-                field.window?.makeFirstResponder(field)
+                guard let window = field.window, !field.isHiddenOrHasHiddenAncestor else { return }
+                window.makeFirstResponder(field)
+                field.selectText(nil)
+                if field.currentEditor() != nil { focusRequest = false }
             }
         }
     }

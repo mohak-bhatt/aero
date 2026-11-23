@@ -8,6 +8,7 @@ struct PageMenuPopover: View {
     let dismiss: () -> Void
 
     @State private var showingSettings = false
+    @State private var showingExtensions = false
     @State private var clearedMessage: String?
 
     private var isFavorite: Bool { manager.favoriteID(of: tab) != nil }
@@ -20,6 +21,7 @@ struct PageMenuPopover: View {
         .padding(6)
         .font(.system(size: 12.5))
         .frame(width: 232)
+        .popover(isPresented: $showingExtensions) { ExtensionsPanel(manager: .shared) }
     }
 
     private var main: some View {
@@ -39,6 +41,8 @@ struct PageMenuPopover: View {
             PageMenuRow(icon: "doc.text.magnifyingglass", title: "Find on Page…") {
                 dismiss(); state.showFind()
             }
+            PageMenuRow(icon: "play.rectangle", title: "Show in Live Activities") { tab.showInLiveActivities(); dismiss() }
+            PageMenuRow(icon: "puzzlepiece.extension", title: "Extensions…") { showingExtensions = true }
             PageMenuRow(icon: "gearshape", title: "Website Settings…") { showingSettings = true }
 
             PageMenuDivider()
@@ -68,7 +72,7 @@ struct PageMenuPopover: View {
                 Button { showingSettings = false; clearedMessage = nil } label: {
                     Image(systemName: "chevron.left").frame(width: 22, height: 22).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(RubberButtonStyle())
                 Text(tab.url?.host ?? "Website").font(.system(size: 13, weight: .semibold)).lineLimit(1)
             }
             .padding(.horizontal, 10)
@@ -118,7 +122,7 @@ private struct PageMenuRow: View {
             .frame(height: 28)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RubberButtonStyle())
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous)

@@ -3,10 +3,6 @@ import Combine
 import SwiftUI
 import WebKit
 
-enum LayoutMode: String {
-    case horizontal, vertical
-}
-
 /// Mirrors the three macOS sidebar sizes (System Settings → Appearance).
 enum SidebarSize: Int, CaseIterable {
     case small = 1, medium = 2, large = 3
@@ -30,6 +26,21 @@ enum SidebarSize: Int, CaseIterable {
     var minWidth: CGFloat { pick(232, 264, 300) }
 }
 
+struct TabDrag: Equatable {
+    var tabID: UUID
+    var location: CGPoint
+    var overContent: Bool
+    var placeLeft: Bool
+}
+
+struct HoverPreview: Equatable {
+    let tabID: UUID
+    /// Pointer height in window coordinates; the card sits beside the sidebar at that height.
+    let y: CGFloat
+}
+
+enum SuggestionSource: String { case omnibox, home }
+
 /// Per-window state: tabs, layout, sidebar, find, suggestions, tab switcher, session.
 @MainActor
 final class BrowserState: ObservableObject {
@@ -52,22 +63,28 @@ final class BrowserState: ObservableObject {
     @Published var findNotFound = false
     @Published var findFocusToken = 0
 
+    @Published var engineEditing = false
+    @Published var activitiesDrawerOpen = false
+    @Published var activitiesDragWidth: CGFloat? = nil
+    var activitiesRevealWidth: CGFloat { activitiesDragWidth ?? (activitiesDrawerOpen ? 52 : 0) }
+    @Published var layoutPreset: BrowserLayout.Preset = .classic
     @Published var sidebarVisible = true
     @Published var sidebarPeeking = false
     @Published var sidebarWidth: CGFloat
     @Published var bookmarksOpen = false
-    @Published var showBookmarksBar: Bool
+    @Published var drag: TabDrag?
+    @Published var hoverPreview: HoverPreview?
+    var tornOff = false
+    private var tearMonitor: Any?
     @Published var sidebarSizeChoice: Int {
         didSet { UserDefaults.standard.set(sidebarSizeChoice, forKey: Pref.sidebarSizeKey) }
     }
     @Published private var systemSidebarSize: SidebarSize
-    @Published var layout: LayoutMode {
-        didSet { UserDefaults.standard.set(layout.rawValue, forKey: Pref.layoutKey) }
-    }
 
     // Address-bar suggestions
     @Published var suggestions: [Suggestion] = []
     @Published var suggestionIndex: Int?
+    @Published var suggestionSource: SuggestionSource = .omnibox
     var suggestTask: Task<Void, Never>?
     var suggestionQuery = ""
 
@@ -84,19 +101,24 @@ final class BrowserState: ObservableObject {
     var rowHeight: CGFloat { isFullScreen ? 44 : titlebarHeight }
     /// x where the sidebar / layout toggle starts: one traffic-light gap after the green button.
     var leadingInset: CGFloat { isFullScreen ? 12 : trafficLightsTrailing + trafficLightGap }
-    var sidebarColumnWidth: CGFloat { min(max(sidebarWidth, sidebarSize.minWidth), 420) }
+    var sidebarColumnWidth: CGFloat { layoutPreset == .compact ? 52 : min(max(sidebarWidth, sidebarSize.minWidth), 420) }
 
-    init(initialTab: BrowserTab? = nil, isPrimary: Bool = false) {
+    init(initialTab: BrowserTab? = nil, isPrimary: Bool = false, restoredSession: SessionSnapshot? = nil) {
         self.isPrimary = isPrimary
         let defaults = UserDefaults.standard
-        layout = LayoutMode(rawValue: defaults.string(forKey: Pref.layoutKey) ?? "") ?? .horizontal
         let savedWidth = defaults.double(forKey: "aero.sidebarWidth")
         sidebarWidth = savedWidth >= 200 ? savedWidth : 270
         sidebarSizeChoice = defaults.integer(forKey: Pref.sidebarSizeKey)
         systemSidebarSize = SidebarSize.fromSystem()
-        showBookmarksBar = Pref.bool(Pref.barKey, default: true)
+        if let layout = BrowserLayoutStore().load() {
+            layoutPreset = layout.preset
+            sidebarWidth = layout.sidebarWidth
+            sidebarVisible = layout.sidebarPinned
+        }
 
-        if isPrimary, let snapshot = store.load() {
+        if let snapshot = restoredSession {
+            tabs.restore(snapshot)
+        } else if isPrimary, let snapshot = store.load() {
             tabs.restore(snapshot)
         } else if let initialTab {
             tabs.adopt(initialTab)
@@ -106,11 +128,6 @@ final class BrowserState: ObservableObject {
         }
 
         bindSessionSaving()
-        tabs.onLeaveTab = { [weak self] tab in   // horizontal layout: playing video pops out automatically
-            guard self?.layout == .horizontal, let info = MediaHub.shared.items[tab.id],
-                  info.isVideo, info.isPlaying else { return }
-            tab.mediaCommand("pip")
-        }
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in self?.systemSidebarSize = SidebarSize.fromSystem() }
             .store(in: &cancellables)
@@ -122,11 +139,8 @@ final class BrowserState: ObservableObject {
 
     private func syncPrefs() {
         let defaults = UserDefaults.standard
-        if let raw = defaults.string(forKey: Pref.layoutKey), let mode = LayoutMode(rawValue: raw), mode != layout { layout = mode }
         let choice = defaults.integer(forKey: Pref.sidebarSizeKey)
         if choice != sidebarSizeChoice { sidebarSizeChoice = choice }
-        let bar = Pref.bool(Pref.barKey, default: true)
-        if bar != showBookmarksBar { showBookmarksBar = bar }
     }
 
     // MARK: Basic actions
@@ -134,7 +148,21 @@ final class BrowserState: ObservableObject {
     func newTab() { tabs.newTab(); requestOmniboxFocus() }
     func closeSelectedTab() { tabs.closeSelectedTab() }
     func reopenClosedTab() { tabs.reopenClosedTab() }
-    func requestOmniboxFocus() { pendingOmniboxFocus = true }
+    func requestOmniboxFocus() {
+        if !sidebarVisible && !layoutPreset.isHorizontal { sidebarPeeking = true }
+        pendingOmniboxFocus = true
+    }
+
+    func applyLayout(_ preset: BrowserLayout.Preset) {
+        guard !preset.isHorizontal else { return }
+        var layout = BrowserLayout.configuration(for: preset)
+        layout.sidebarWidth = Double(sidebarWidth)
+        layoutPreset = preset
+        sidebarWidth = layout.sidebarWidth
+        sidebarVisible = layout.sidebarPinned
+        sidebarPeeking = false
+        BrowserLayoutStore().save(layout)
+    }
 
     func openURL(_ url: URL) {
         if let tab = tabs.selectedTab { tab.load(url) } else { tabs.newTab(url: url) }
@@ -152,33 +180,26 @@ final class BrowserState: ObservableObject {
         if forceReload { tab.reload() } else { tab.reloadOrStop() }
     }
 
-    func toggleLayout() {
-        layout = layout == .horizontal ? .vertical : .horizontal
-        sidebarVisible = true
-        sidebarPeeking = false
-    }
-
     func toggleSidebar() {
-        guard layout == .vertical else { return }
         sidebarVisible.toggle()
         sidebarPeeking = false
-    }
-
-    func toggleBookmarksBar() {
-        showBookmarksBar.toggle()
-        UserDefaults.standard.set(showBookmarksBar, forKey: Pref.barKey)
+        persistLayout()
     }
 
     func toggleBookmarks() {
-        if layout == .vertical {
-            if !sidebarVisible { sidebarVisible = true }
-            bookmarksOpen.toggle()
-        } else {
-            toggleBookmarksBar()
-        }
+        if !sidebarVisible { sidebarVisible = true }
+        bookmarksOpen.toggle()
     }
 
-    func persistSidebarWidth() { UserDefaults.standard.set(Double(sidebarWidth), forKey: "aero.sidebarWidth") }
+    private func persistLayout() {
+        BrowserLayoutStore().save(BrowserLayout(preset: layoutPreset,
+            sidebarWidth: Double(sidebarWidth), sidebarPinned: sidebarVisible))
+    }
+
+    func persistSidebarWidth() {
+        UserDefaults.standard.set(Double(sidebarWidth), forKey: "aero.sidebarWidth")
+        persistLayout()
+    }
 
     // MARK: Favourites (live tabs shown as tiles, not in the tab list)
 
@@ -218,6 +239,80 @@ final class BrowserState: ObservableObject {
     func newBookmarkFolder(in folder: UUID? = nil) {
         if let name = Prompt.text(title: "New Bookmark Folder", initial: "New Folder", button: "Create"), !name.isEmpty {
             bookmarks.addFolder(title: name, to: folder)
+        }
+    }
+
+    // MARK: Tab dragging (reorder, split view, tear-off)
+
+    /// The page area in window coordinates (origin top-left).
+    var contentRect: CGRect {
+        guard let size = window?.contentView?.bounds.size else { return .zero }
+        if layoutPreset.isHorizontal {
+            let top = rowHeight + (layoutPreset == .compactHorizontal ? 8 : 54)
+            return CGRect(x: 0, y: top, width: size.width, height: max(0, size.height - top))
+        }
+        let x = sidebarVisible ? sidebarColumnWidth + activitiesRevealWidth : 0
+        return CGRect(x: x, y: 0, width: size.width - x, height: size.height)
+    }
+
+    func windowPoint(_ screen: NSPoint) -> CGPoint {
+        guard let window, let content = window.contentView else { return .zero }
+        let point = window.convertPoint(fromScreen: screen)
+        return CGPoint(x: point.x, y: content.bounds.height - point.y)
+    }
+
+    func isOverContent(_ screen: NSPoint) -> Bool {
+        guard let frame = window?.frame, frame.contains(screen) else { return false }
+        let point = windowPoint(screen), rect = contentRect
+        return point.x > rect.minX + 6 && point.y > rect.minY + 6
+    }
+
+    /// Called continuously while a tab is dragged. Leaving the window tears the tab off live.
+    func dragMoved(_ tab: BrowserTab) {
+        guard !tornOff, let frame = window?.frame else { return }
+        // One tab: nothing to split with and nowhere to move it.
+        guard tabs.tabs.count > 1 else { drag = nil; return }
+        let screen = NSEvent.mouseLocation
+        if !frame.insetBy(dx: -8, dy: -8).contains(screen) { beginTearOff(tab, at: screen); return }
+        let point = windowPoint(screen)
+        let over = isOverContent(screen)
+        let rect = contentRect
+        drag = TabDrag(tabID: tab.id, location: point, overContent: over,
+                       placeLeft: over && point.x < rect.midX && tabs.selectedSplit == nil)
+        hoverPreview = nil
+    }
+
+    /// Returns true if the drop was handled (split / tear-off) so the caller must not reorder.
+    func dragEnded(_ tab: BrowserTab) -> Bool {
+        let current = drag
+        drag = nil
+        if tornOff { return true }
+        guard let current, current.overContent else { return false }
+        let anchor: BrowserTab? = {
+            if let selected = tabs.selectedTab, selected.id != tab.id { return selected }
+            return tabs.mruTabs().first { $0.id != tab.id }
+        }()
+        if let anchor { tabs.split(tab, with: anchor, placeBefore: current.placeLeft) }
+        return true
+    }
+
+    /// Opens the tab in a new window right away and keeps that window glued to the pointer.
+    func beginTearOff(_ tab: BrowserTab, at screen: NSPoint) {
+        guard !tornOff, tabs.tabs.count > 1, let moved = tabs.detach(tab) else { return }
+        tornOff = true
+        drag = nil
+        let controller = WindowCoordinator.shared.openWindow(adopting: moved, near: screen)
+        guard let newWindow = controller.window else { tornOff = false; return }
+        tearMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self, weak newWindow] event in
+            if event.type == .leftMouseDragged, let newWindow {
+                let point = NSEvent.mouseLocation
+                newWindow.setFrameTopLeftPoint(NSPoint(x: point.x - 120, y: point.y + 20))
+            } else if event.type == .leftMouseUp {
+                if let monitor = self?.tearMonitor { NSEvent.removeMonitor(monitor) }
+                self?.tearMonitor = nil
+                self?.tornOff = false
+            }
+            return event
         }
     }
 
@@ -412,12 +507,11 @@ final class BrowserState: ObservableObject {
     // MARK: Session
 
     func saveSession() {
-        guard isPrimary else { return }
-        store.save(tabs.snapshot())
+        if isPrimary { store.save(tabs.snapshot()) }
+        WindowCoordinator.shared.saveSessions()
     }
 
     private func bindSessionSaving() {
-        guard isPrimary else { return }
         let pageChanges = tabs.$tabs
             .map { tabs -> AnyPublisher<Void, Never> in
                 Publishers.MergeMany(tabs.map { tab in
@@ -425,9 +519,17 @@ final class BrowserState: ObservableObject {
                 }).eraseToAnyPublisher()
             }
             .switchToLatest()
-        let selectionChanges = tabs.$selectedID.map { _ in () }
-        Publishers.Merge(pageChanges, selectionChanges)
-            .debounce(for: .seconds(0.5), scheduler: RunLoop.main)
+        let changes: [AnyPublisher<Void, Never>] = [
+            pageChanges.eraseToAnyPublisher(),
+            tabs.$selectedID.map { _ in () }.eraseToAnyPublisher(),
+            tabs.$tabs.map { _ in () }.eraseToAnyPublisher(),
+            tabs.$splitStacked.map { _ in () }.eraseToAnyPublisher(),
+            tabs.$splitIDs.map { _ in () }.eraseToAnyPublisher(),
+            tabs.$pinnedIDs.map { _ in () }.eraseToAnyPublisher(),
+            tabs.$favoriteTabs.map { _ in () }.eraseToAnyPublisher()
+        ]
+        Publishers.MergeMany(changes)
+            .receive(on: RunLoop.main)
             .sink { [weak self] in self?.saveSession() }
             .store(in: &cancellables)
     }

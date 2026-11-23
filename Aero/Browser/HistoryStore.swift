@@ -1,11 +1,3 @@
-//
-//  HistoryEntry.swift
-//  Aero
-//
-//  Created by Mohak Bhatt on 24/10/26.
-//
-
-
 import Foundation
 import Combine
 
@@ -20,13 +12,15 @@ struct HistoryEntry: Codable, Identifiable {
 @MainActor
 final class HistoryStore: ObservableObject {
     static let shared = HistoryStore()
+    private let defaults: UserDefaults
     private let key = "aero.history.v1"
     private let limit = 1500
 
     @Published private(set) var entries: [HistoryEntry] = []   // newest first
 
-    private init() {
-        if let data = UserDefaults.standard.data(forKey: key),
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode([HistoryEntry].self, from: data) { entries = decoded }
     }
 
@@ -41,6 +35,17 @@ final class HistoryStore: ObservableObject {
             entries.insert(HistoryEntry(url: url, title: name, visits: 1, lastVisit: Date()), at: 0)
             if entries.count > limit { entries.removeLast() }
         }
+        save()
+    }
+
+    func importEntries(_ new: [HistoryEntry]) {
+        var known = Set(entries.map { $0.url.absoluteString })
+        entries.append(contentsOf: new.filter {
+            ["http", "https"].contains($0.url.scheme?.lowercased() ?? "") &&
+            $0.url.host != nil && known.insert($0.url.absoluteString).inserted
+        })
+        entries.sort { $0.lastVisit > $1.lastVisit }
+        if entries.count > limit { entries.removeLast(entries.count - limit) }
         save()
     }
 
@@ -63,6 +68,6 @@ final class HistoryStore: ObservableObject {
     func clear() { entries = []; save() }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(entries) { UserDefaults.standard.set(data, forKey: key) }
+        if let data = try? JSONEncoder().encode(entries) { defaults.set(data, forKey: key) }
     }
 }

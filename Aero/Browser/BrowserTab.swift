@@ -7,6 +7,7 @@ protocol TabHost: AnyObject {
     func openInNewTab(_ url: URL, select: Bool, from tab: BrowserTab)
     func openPopup(configuration: WKWebViewConfiguration, from tab: BrowserTab) -> BrowserTab
     func closeTab(_ tab: BrowserTab)
+    func tabDidFocus(_ tab: BrowserTab)
 }
 
 /// One tab = one WKWebView. The tab is the source of truth for its own
@@ -21,6 +22,22 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     @Published private(set) var url: URL?
     @Published private(set) var isLoading = false
     @Published private(set) var progress: Double = 0
+    @Published var pullRefreshProgress: CGFloat = 0
+    @Published private(set) var audioMuted = false
+    func toggleTabAudio() {
+        audioMuted.toggle()
+        let script = "window.__aero && window.__aero.setMuted(\(audioMuted ? "true" : "false"))"
+        webView.evaluateJavaScript(script, completionHandler: nil)
+        if let mediaFrame, !mediaFrame.isMainFrame { webView.evaluateJavaScript(script, in: mediaFrame, in: .page) { _ in } }
+    }
+    @Published var historyNavigationPulse = 0
+    var historyNavigationPending = false
+    func completeHistoryNavigation() {
+        guard historyNavigationPending else { return }
+        historyNavigationPending = false
+        historyNavigationPulse += 1
+        AeroHaptics.perform(.generic)
+    }
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false
     @Published private(set) var zoom: CGFloat = 1
@@ -32,6 +49,29 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
 
     /// Set for session-restored tabs that haven't been loaded yet.
     private(set) var pendingURL: URL?
+    struct NavigationFailure {
+        let url: URL?
+        let message: String
+    }
+    @Published private(set) var navigationFailure: NavigationFailure?
+    private(set) var requestedURL: URL?
+
+    func prepareNavigation(to url: URL) {
+        requestedURL = url
+        navigationFailure = nil
+    }
+
+    func recordNavigationFailure(_ error: Error) {
+        let ns = error as NSError
+        guard !(ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled),
+              !(ns.domain == "WebKitErrorDomain" && ns.code == 102) else { return }
+        let failing = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? requestedURL ?? url
+        navigationFailure = NavigationFailure(url: failing, message: ns.localizedDescription)
+        if let failing { url = failing }
+        isLoading = false
+    }
+
+    var mediaFrame: WKFrameInfo?
     var faviconHost: String?
     var downloadDestinations: [ObjectIdentifier: URL] = [:]
     private var cancellables = Set<AnyCancellable>()
@@ -53,10 +93,20 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
-        webView.allowsLinkPreview = false   // system preview was logged-out and offered Safari
+        webView.allowsLinkPreview = true // Native Force Touch link and detected-data previews.
+        #if DEBUG
         if #available(macOS 13.3, *) { webView.isInspectable = true }
+        #endif
         observeWebView()
         installMedia()
+        installPasswords()
+        (webView as? AeroWebView)?.onPullProgress = { [weak self] in self?.pullRefreshProgress = $0 }
+        (webView as? AeroWebView)?.onPullRefresh = { [weak self] in self?.reload() }
+        (webView as? AeroWebView)?.onShowActivity = { [weak self] in self?.showInLiveActivities() }
+        (webView as? AeroWebView)?.onFocus = { [weak self] in
+            guard let self else { return }
+            self.host?.tabDidFocus(self)
+        }
         if let url {
             if loadImmediately { load(url) } else { pendingURL = url }
         }
@@ -65,6 +115,7 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     static func makeConfiguration() -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = true
+        config.webExtensionController = ExtensionManager.shared.controller
         config.applicationNameForUserAgent = "Version/18.0 Safari/605.1.15"
         return config
     }
@@ -73,6 +124,7 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
 
     func load(_ url: URL) {
         pendingURL = nil
+        prepareNavigation(to: url)
         self.url = url
         if url.isFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
@@ -90,7 +142,9 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     func goForward() { webView.goForward() }
 
     func reload() {
-        if webView.url == nil, let url { load(url) } else { webView.reload() }
+        AeroHaptics.perform(.levelChange)
+        if let failed = navigationFailure?.url { load(failed) }
+        else if webView.url == nil, let url { load(url) } else { webView.reload() }
     }
 
     func stop() { webView.stopLoading() }
@@ -139,29 +193,95 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
         controller.removeScriptMessageHandler(forName: "aeroMedia")
         controller.add(MediaMessageHandler(tab: self), name: "aeroMedia")
         if !controller.userScripts.contains(where: { $0.source.contains("__aero") }) {
-            controller.addUserScript(WKUserScript(source: MediaScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+            controller.addUserScript(WKUserScript(source: MediaScript.source, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         }
     }
 
-    func handleMedia(_ body: [String: Any]) {
+    // MARK: Passwords (autofill + save prompt)
+
+    private func installPasswords() {
+        let controller = webView.configuration.userContentController
+        controller.removeScriptMessageHandler(forName: "aeroPass", contentWorld: PasswordScript.world)
+        controller.add(PasswordMessageHandler(tab: self), contentWorld: PasswordScript.world, name: "aeroPass")
+        if !controller.userScripts.contains(where: { $0.source == PasswordScript.source }) {
+            controller.addUserScript(WKUserScript(source: PasswordScript.source, injectionTime: .atDocumentEnd,
+                                                 forMainFrameOnly: true, in: PasswordScript.world))
+        }
+    }
+
+    func handlePassword(_ message: WKScriptMessage) {
+        let frame = message.frameInfo
+        let origin = frame.securityOrigin
+        guard let frameURL = frame.request.url,
+              message.webView === webView, message.world == PasswordScript.world,
+              let body = message.body as? [String: Any],
+              let host = PasswordOriginPolicy.trustedHost(pageURL: webView.url,
+                  frameURL: frame.request.url, isMainFrame: frame.isMainFrame,
+                  originScheme: origin.protocol, originHost: origin.host, originPort: origin.port) else { return }
+        let store = PasswordStore.shared
+        switch body["type"] as? String {
+        case "lookup":
+            // Host-only legacy credentials cannot distinguish custom-port origins.
+            let credentials = store.credentials(for: host)
+            guard credentials.count == 1, let credential = credentials.first,
+                  let password = store.password(host: credential.host, username: credential.username) else { return }
+            let call = "window.__aeroPass && window.__aeroPass.fill(\(PasswordStore.js(credential.username)), \(PasswordStore.js(password)), \(PasswordStore.js(frameURL.absoluteString)))"
+            webView.evaluateJavaScript(call, in: frame, in: PasswordScript.world) { _ in }
+        case "submit":
+            guard let password = body["password"] as? String, !password.isEmpty else { return }
+            store.offerToSave(host: host, username: body["username"] as? String ?? "", password: password)
+        default: break
+        }
+    }
+
+    private var isClosed = false
+
+    func showInLiveActivities() { MediaHub.shared.show(id) }
+
+    func handleMedia(_ body: [String: Any], frame: WKFrameInfo? = nil) {
+        guard !isClosed else { return }
+        if let frame {
+            mediaFrame = frame
+            if audioMuted { webView.evaluateJavaScript("window.__aero && window.__aero.setMuted(true)", in: frame, in: .page) { _ in } }
+        }
         guard let playing = body["playing"] as? Bool else { return }
         let info = MediaInfo(isPlaying: playing,
                              isVideo: body["video"] as? Bool ?? false,
                              title: (body["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? displayTitle,
                              artist: body["artist"] as? String ?? "",
                              artworkURL: (body["artwork"] as? String).flatMap(URL.init(string:)),
-                             duration: body["duration"] as? Double ?? 0,
-                             currentTime: body["time"] as? Double ?? 0)
+                             duration: Self.safeMediaTime(body["duration"] as? Double ?? 0),
+                             currentTime: Self.safeMediaTime(body["time"] as? Double ?? 0),
+                             isMainFrame: frame?.isMainFrame ?? true,
+                             videoWidth: body["width"] as? Double ?? 0,
+                             videoHeight: body["height"] as? Double ?? 0)
         MediaHub.shared.update(id, info)
     }
 
+    static func safeMediaTime(_ value: Double) -> Double { value.isFinite ? max(0, value) : 0 }
+
+    func seekMedia(to seconds: Double) {
+        guard seconds.isFinite, seconds >= 0 else { return }
+        let script = "window.__aero && window.__aero.seek(\(seconds))"
+        webView.evaluateJavaScript(script, in: mediaFrame, in: .page) { _ in }
+    }
+
     func mediaCommand(_ command: String) {
-        webView.evaluateJavaScript("window.__aero && window.__aero.\(command)()", completionHandler: nil)
+        guard ["prev", "next", "play", "pause", "toggle", "back10", "fwd10", "pip", "lift", "unlift", "mute"].contains(command) else { return }
+        let script = "window.__aero && window.__aero.\(command)()"
+        if let mediaFrame {
+            webView.evaluateJavaScript(script, in: mediaFrame, in: .page) { _ in }
+        } else {
+            webView.evaluateJavaScript(script, completionHandler: nil)
+        }
     }
 
     // MARK: Lifecycle
 
     func tearDown() {
+        isClosed = true
+        MediaHub.shared.forget(id)
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "aeroPass", contentWorld: PasswordScript.world)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "aeroMedia")
         MediaHub.shared.update(id, nil)
         webView.stopLoading()
@@ -181,7 +301,7 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
 
         webView.publisher(for: \.url)
             .sink { [weak self] value in
-                guard let self else { return }
+                guard let self, self.navigationFailure == nil else { return }
                 if let value {
                     self.url = value
                 } else if self.pendingURL == nil, !self.webView.isLoading {

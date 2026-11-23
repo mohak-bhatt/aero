@@ -5,9 +5,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
         WindowCoordinator.shared.startKeyMonitor()
-        WindowCoordinator.shared.openWindow(primary: true)
+        WindowCoordinator.shared.restoreWindows()
         if Onboarding.needed { Onboarding.show() }
         UpdateManager.shared.checkIfDue()
+        WhatsNewWindow.showIfNeeded()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -16,6 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        WindowCoordinator.shared.prepareToTerminate()
+        return .terminateNow
+    }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { WindowCoordinator.shared.openWindow() }

@@ -17,7 +17,7 @@ struct DownloadsPopover: View {
                 Text("Downloads").font(.headline)
                 Spacer()
                 Button("Clear") { manager.clearFinished() }
-                    .buttonStyle(.plain)
+                    .buttonStyle(RubberButtonStyle())
                     .foregroundStyle(.secondary)
                     .disabled(manager.items.allSatisfy { $0.state == .running })
             }
@@ -72,7 +72,7 @@ private struct DownloadRow: View {
                 Image(systemName: item.state == .running ? "xmark.circle" : "magnifyingglass.circle")
                     .font(.system(size: 16))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(RubberButtonStyle())
             .foregroundStyle(.secondary)
             .help(item.state == .running ? "Cancel" : "Show in Finder")
         }

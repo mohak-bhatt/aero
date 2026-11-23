@@ -6,6 +6,10 @@ import WebKit
 extension BrowserTab: WKNavigationDelegate {
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        if navigationAction.navigationType == .backForward, navigationAction.targetFrame?.isMainFrame == true {
+            historyNavigationPending = true
+            (webView as? AeroWebView)?.markHistoryNavigation()
+        }
         if navigationAction.shouldPerformDownload { return .download }
 
         if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
@@ -17,6 +21,9 @@ extension BrowserTab: WKNavigationDelegate {
                 return .cancel
             }
         }
+        if navigationAction.targetFrame?.isMainFrame == true, let url = navigationAction.request.url {
+            prepareNavigation(to: url)
+        }
         return .allow
     }
 
@@ -26,35 +33,43 @@ extension BrowserTab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        completeHistoryNavigation()
+        (webView as? AeroWebView)?.finishHistoryGesture()
         if webView.url?.host != faviconHost { favicon = nil }
         applySavedZoom()
         MediaHub.shared.update(id, nil)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard navigationFailure == nil else { return }
+        completeHistoryNavigation()
         loadFavicon()
         updateThemeColor()
         if let url = webView.url { HistoryStore.shared.record(url: url, title: webView.title ?? "") }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        showError(error)
+        historyNavigationPending = false
+        (webView as? AeroWebView)?.historyGesturePending = false
+        recordNavigationFailure(error)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        showError(error)
+        historyNavigationPending = false
+        (webView as? AeroWebView)?.historyGesturePending = false
+        recordNavigationFailure(error)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        webView.reload()
+        reload()
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        download.delegate = self
+        download.delegate = DownloadManager.shared
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        download.delegate = self
+        download.delegate = DownloadManager.shared
     }
 
     // MARK: Favicon
@@ -90,8 +105,9 @@ extension BrowserTab: WKNavigationDelegate {
         let script = """
         (() => {
           const ok = c => (c && c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent') ? c : null;
-          const meta = document.querySelector('meta[name="theme-color"]');
-          if (meta && ok(meta.content)) return meta.content;
+          // Prefer the rendered page edge over brand/theme metadata.
+          const metas = Array.from(document.querySelectorAll('meta[name="theme-color"]'));
+          const meta = metas.find(m => !m.media || matchMedia(m.media).matches);
           let el = document.elementFromPoint(Math.floor(innerWidth / 2), 4);
           while (el) {
             const c = ok(getComputedStyle(el).backgroundColor);
@@ -100,15 +116,16 @@ extension BrowserTab: WKNavigationDelegate {
           }
           return ok(getComputedStyle(document.body).backgroundColor)
             || ok(getComputedStyle(document.documentElement).backgroundColor)
-            || '';
+            || (meta ? meta.content : '');
         })()
         """
+        let sampledURL = webView.url
         webView.evaluateJavaScript(script) { [weak self] result, _ in
             guard let self else { return }
             Task { @MainActor in
+                guard self.webView.url == sampledURL else { return }
                 let parsed = (result as? String).flatMap(Self.parseCSSColor)
-                // White / near-white or unparseable pages get no tint at all.
-                self.themeColor = parsed.flatMap { Self.isNearlyWhite($0) ? nil : $0 }
+                self.themeColor = parsed
             }
         }
         if retry {
@@ -147,33 +164,7 @@ extension BrowserTab: WKNavigationDelegate {
         return NSColor(srgbRed: parts[0] / 255, green: parts[1] / 255, blue: parts[2] / 255, alpha: 1)
     }
 
-    // MARK: Error page
 
-    private func showError(_ error: Error) {
-        let ns = error as NSError
-        if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }
-        if ns.domain == "WebKitErrorDomain" && ns.code == 102 { return } // converted to download
-        let failing = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL
-        let message = Self.escape(ns.localizedDescription)
-        let address = Self.escape(failing?.absoluteString ?? "")
-        let html = """
-        <!doctype html><meta charset="utf-8"><meta name="color-scheme" content="light dark">
-        <style>
-          body { font: 15px -apple-system, system-ui; display: flex; height: 100vh; margin: 0;
-                 align-items: center; justify-content: center; text-align: center; }
-          h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
-          p { opacity: .65; margin: 4px 0; max-width: 460px; }
-        </style>
-        <div><h1>Can’t open this page</h1><p>\(message)</p><p>\(address)</p></div>
-        """
-        webView.loadHTMLString(html, baseURL: failing)
-    }
-
-    private static func escape(_ text: String) -> String {
-        text.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-    }
 }
 
 // MARK: - UI (new windows, panels)
@@ -219,28 +210,5 @@ extension BrowserTab: WKUIDelegate {
         panel.canChooseDirectories = parameters.allowsDirectories
         let response = await panel.begin()
         return response == .OK ? panel.urls : nil
-    }
-}
-
-// MARK: - Downloads
-
-extension BrowserTab: WKDownloadDelegate {
-    func download(_ download: WKDownload,
-                  decideDestinationUsing response: URLResponse,
-                  suggestedFilename: String) async -> URL? {
-        let manager = DownloadManager.shared
-        guard let destination = await manager.chooseDestination(filename: suggestedFilename) else {
-            return nil // user cancelled the save panel
-        }
-        manager.begin(destination: destination, download: download)
-        return destination
-    }
-
-    func downloadDidFinish(_ download: WKDownload) {
-        DownloadManager.shared.finish(download)
-    }
-
-    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-        DownloadManager.shared.fail(download, error: error)
     }
 }

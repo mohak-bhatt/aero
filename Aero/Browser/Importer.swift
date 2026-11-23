@@ -1,4 +1,6 @@
 import AppKit
+import SQLite3
+import UniformTypeIdentifiers
 
 /// Imports bookmarks from other browsers (their bookmark files or an exported HTML file).
 @MainActor
@@ -53,6 +55,116 @@ enum Importer {
         store.addNode(BookmarkNode(title: "Imported from \(source.rawValue)", url: nil, iconPNG: nil, children: nodes))
         Prompt.info(title: "Imported \(count) bookmarks", message: "They are in the folder “Imported from \(source.rawValue)”.")
         return count
+    }
+
+    // MARK: History and passwords
+
+    static func runPasswords() {
+        let panel = NSOpenPanel()
+        panel.message = "Choose the CSV you exported from your old browser or password manager (Chrome, Safari, Firefox, Edge, Brave, 1Password, Bitwarden…). Delete the file afterwards."
+        panel.prompt = "Import"
+        panel.allowedContentTypes = [.commaSeparatedText, .plainText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let count = PasswordStore.shared.importCSV(url)
+        Prompt.info(title: count > 0 ? "Imported \(count) passwords" : "Nothing imported",
+                    message: count > 0 ? "They are stored in your Mac's Keychain and will autofill on matching sites."
+                                       : "That file has no URL, username and password columns.")
+    }
+
+    @discardableResult
+    static func runHistory(_ source: Source) -> Int? {
+        let panel = NSOpenPanel()
+        panel.message = historyHint(source)
+        panel.prompt = "Import"
+        panel.showsHiddenFiles = true
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let picked = panel.url else { return nil }
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("aero-history-\(UUID().uuidString).db")
+        try? FileManager.default.removeItem(at: copy)
+        guard (try? FileManager.default.copyItem(at: picked, to: copy)) != nil else { return nil }
+        defer { try? FileManager.default.removeItem(at: copy) }
+        let entries = readHistory(at: copy.path)
+        HistoryStore.shared.importEntries(entries)
+        Prompt.info(title: entries.isEmpty ? "Nothing imported" : "Imported \(entries.count) history items",
+                    message: entries.isEmpty ? "That doesn't look like a browser history database." : "They now appear in suggestions and Home.")
+        return entries.count
+    }
+
+    private static func historyHint(_ source: Source) -> String {
+        switch source {
+        case .safari: return "Choose ~/Library/Safari/History.db (macOS may ask for Full Disk Access)."
+        case .firefox: return "Choose places.sqlite inside ~/Library/Application Support/Firefox/Profiles/<your profile>."
+        case .html: return "Choose a browser history database file."
+        default: return "Choose the “History” file in the same profile folder as your bookmarks."
+        }
+    }
+
+    static func readHistory(at path: String) -> [HistoryEntry] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
+        defer { sqlite3_close(db) }
+
+        func hasTable(_ name: String) -> Bool {
+            var statement: OpaquePointer?
+            defer { sqlite3_finalize(statement) }
+            guard sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master WHERE name = '\(name)'", -1, &statement, nil) == SQLITE_OK else { return false }
+            return sqlite3_step(statement) == SQLITE_ROW
+        }
+
+        let query: String, toDate: (Double) -> Date
+        if hasTable("urls") {
+            query = "SELECT url, title, visit_count, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 3000"
+            toDate = { Date(timeIntervalSince1970: $0 / 1_000_000 - 11_644_473_600) }
+        } else if hasTable("history_items") {
+            query = "SELECT i.url, COALESCE(v.title, ''), i.visit_count, MAX(v.visit_time) FROM history_items i JOIN history_visits v ON v.history_item = i.id GROUP BY i.id ORDER BY MAX(v.visit_time) DESC LIMIT 3000"
+            toDate = { Date(timeIntervalSinceReferenceDate: $0) }
+        } else if hasTable("moz_places") {
+            query = "SELECT url, COALESCE(title, ''), visit_count, last_visit_date FROM moz_places WHERE visit_count > 0 AND last_visit_date IS NOT NULL ORDER BY last_visit_date DESC LIMIT 3000"
+            toDate = { Date(timeIntervalSince1970: $0 / 1_000_000) }
+        } else { return [] }
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return [] }
+        var result: [HistoryEntry] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let urlText = sqlite3_column_text(statement, 0), let url = URL(string: String(cString: urlText)),
+                  url.scheme == "http" || url.scheme == "https" else { continue }
+            let title = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
+            result.append(HistoryEntry(url: url, title: title.isEmpty ? (url.host ?? url.absoluteString) : title,
+                                       visits: max(1, Int(sqlite3_column_int(statement, 2))),
+                                       lastVisit: toDate(sqlite3_column_double(statement, 3))))
+        }
+        return result
+    }
+
+    // MARK: Firefox bookmarks (stored in places.sqlite)
+
+    static func readFirefoxBookmarks(at path: String) -> [BookmarkNode] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let sql = "SELECT b.id, b.parent, b.type, COALESCE(b.title, ''), COALESCE(p.url, '') FROM moz_bookmarks b LEFT JOIN moz_places p ON b.fk = p.id ORDER BY b.parent, b.position"
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        var rows: [(id: Int, parent: Int, type: Int, title: String, url: String)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append((Int(sqlite3_column_int(statement, 0)), Int(sqlite3_column_int(statement, 1)), Int(sqlite3_column_int(statement, 2)),
+                         sqlite3_column_text(statement, 3).map { String(cString: $0) } ?? "",
+                         sqlite3_column_text(statement, 4).map { String(cString: $0) } ?? ""))
+        }
+        func children(of parent: Int) -> [BookmarkNode] {
+            rows.filter { $0.parent == parent && ($0.type == 1 || $0.type == 2) && $0.title != "tags" }.compactMap { row in
+                if row.type == 2 {
+                    let kids = children(of: row.id)
+                    return kids.isEmpty ? nil : BookmarkNode(title: row.title, url: nil, iconPNG: nil, children: kids)
+                }
+                guard let url = URL(string: row.url), url.scheme == "http" || url.scheme == "https" else { return nil }
+                return BookmarkNode(title: row.title.isEmpty ? row.url : row.title, url: url, iconPNG: nil, children: nil)
+            }
+        }
+        return children(of: 1)
     }
 
     // MARK: Parsers

@@ -15,7 +15,31 @@ struct SidebarView: View {
 
     var body: some View {
         if let tab = tabs.selectedTab {
-            SidebarContent(tabs: tabs, state: state, favorites: state.favorites, tab: tab, isOverlay: isOverlay)
+            HStack(spacing: 0) {
+                ActivityToolDrawer(tabs: tabs) { state.activitiesDrawerOpen = false }
+                    .frame(width: 52)
+                    .frame(width: state.activitiesRevealWidth, alignment: .leading)
+                    .clipped().accessibilityHidden(state.activitiesRevealWidth == 0)
+                Group {
+                    if state.layoutPreset == .compact {
+                        CompactSidebarContent(tabs: tabs, state: state, favorites: state.favorites, tab: tab, isOverlay: isOverlay)
+                    } else {
+                        SidebarContent(tabs: tabs, state: state, favorites: state.favorites, tab: tab, isOverlay: isOverlay)
+                    }
+                }.frame(width: state.sidebarColumnWidth)
+            }
+            .overlay(alignment: .trailing) { SidebarResizeHandle(state: state) }
+            .background(SidebarSwipeSurface(width: state.activitiesRevealWidth) { width in
+                var transaction = Transaction(); transaction.disablesAnimations = true
+                withTransaction(transaction) { state.activitiesDragWidth = width }
+            } settle: { open in
+                let changed = open != state.activitiesDrawerOpen
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                    state.activitiesDragWidth = nil
+                    state.activitiesDrawerOpen = open
+                }
+                if changed { AeroHaptics.perform(.alignment) }
+            })
         } else {
             Color.clear
         }
@@ -28,6 +52,9 @@ private struct SidebarContent: View {
     @ObservedObject var favorites: FavoritesStore
     @ObservedObject var tab: BrowserTab
     let isOverlay: Bool
+    @AppStorage("aero.engine.address.dock") private var addressDock = "sidebar"
+    @AppStorage("aero.engine.navigation.dock") private var navigationDock = "sidebar"
+    @AppStorage("aero.engine.activities.dock") private var activitiesDock = "sidebar"
 
     @State private var dragID: UUID?
     @State private var dragStartIndex = 0
@@ -47,9 +74,10 @@ private struct SidebarContent: View {
         VStack(spacing: size.spacing) {
             topRow.padding(.bottom, -topOverlap)
 
-            OmniboxView(tab: tab, state: state, height: size.pillHeight)
-                .padding(.horizontal, size.hPad)
-                .zIndex(5)
+            if addressDock == "sidebar" {
+                OmniboxView(tab: tab, state: state, height: size.pillHeight)
+                    .padding(.horizontal, size.hPad).zIndex(5)
+            }
 
             favoriteTiles
 
@@ -68,8 +96,9 @@ private struct SidebarContent: View {
         }
         .background { SidebarBackground(tint: tint, isOverlay: isOverlay).ignoresSafeArea() }
         .overlay { bookmarksDropdown }
-        .overlay(alignment: .trailing) { SidebarResizeHandle(state: state) }
+
         .contextMenu { BackgroundContextMenu() }
+        .onValueChange(of: tabs.unpinnedTabs.count) { _ in resetDrag() }
     }
 
     // MARK: Window row
@@ -82,7 +111,7 @@ private struct SidebarContent: View {
                 state.sidebarPeeking = false
             }
             Spacer(minLength: 0)
-            NavigationPill(tab: tab, height: controlHeight, iconSize: size.iconSize)
+            if navigationDock == "sidebar" { NavigationPill(tab: tab, height: controlHeight, iconSize: size.iconSize + 1) }
         }
         .padding(.leading, state.leadingInset)
         .padding(.trailing, size.hPad)
@@ -139,7 +168,7 @@ private struct SidebarContent: View {
         }
     }
 
-    // MARK: Tabs (smooth drag to reorder; release outside the window for a new window)
+    // MARK: Tabs (drag: reorder in place, over the page = split view, outside = new window)
 
     private var tabList: some View {
         let list = tabs.unpinnedTabs
@@ -152,9 +181,9 @@ private struct SidebarContent: View {
                               onClose: { tabs.closeTab(item) },
                               onPin: { tabs.togglePin(item) },
                               onFavorite: { state.toggleFavorite(item) })
-                    .offset(y: dragged ? dragHeight : shift)
-                    .scaleEffect(dragged ? (dragOutside ? 0.9 : 1.03) : 1)
-                    .opacity(dragged && dragOutside ? 0.7 : 1)
+                    .modifier(TabHoverPreview(tab: item, showsSplitBadge: false))
+                    .offset(y: dragged ? (dragOutside ? 0 : dragHeight) : shift)
+                    .opacity(dragged && dragOutside ? 0.35 : 1)
                     .zIndex(dragged ? 10 : 0)
                     .animation(dragged ? nil : .spring(response: 0.28, dampingFraction: 0.82), value: shift)
                     .animation(.easeOut(duration: 0.12), value: dragOutside)
@@ -164,7 +193,7 @@ private struct SidebarContent: View {
     }
 
     private func rowShift(index: Int) -> CGFloat {
-        guard dragID != nil else { return 0 }
+        guard dragID != nil, !dragOutside else { return 0 }
         if dragStartIndex < dragTarget, index > dragStartIndex, index <= dragTarget { return -rowStep }
         if dragStartIndex > dragTarget, index < dragStartIndex, index >= dragTarget { return rowStep }
         return 0
@@ -172,6 +201,7 @@ private struct SidebarContent: View {
 
     private func resetDrag() {
         dragID = nil; dragHeight = 0; dragTarget = 0; dragOutside = false
+        state.drag = nil
     }
 
     private func dragGesture(for item: BrowserTab, index: Int, list: [BrowserTab]) -> some Gesture {
@@ -179,16 +209,14 @@ private struct SidebarContent: View {
             .onChanged { value in
                 if dragID != item.id { dragID = item.id; dragStartIndex = index; dragTarget = index }
                 dragHeight = value.translation.height
-                dragTarget = min(max(index + Int((value.translation.height / rowStep).rounded()), 0), list.count - 1)
-                dragOutside = state.window.map { !$0.frame.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation) } ?? false
-            }
-            .onEnded { value in
-                let point = NSEvent.mouseLocation
-                if dragOutside || value.translation.width > state.sidebarColumnWidth + 120 {
-                    resetDrag()
-                    state.tearOff(item, at: point)
-                    return
+                state.dragMoved(item)
+                dragOutside = state.drag?.overContent ?? false
+                if !dragOutside {
+                    dragTarget = min(max(index + Int((value.translation.height / rowStep).rounded()), 0), list.count - 1)
                 }
+            }
+            .onEnded { _ in
+                if state.dragEnded(item) { resetDrag(); return }
                 let target = dragTarget, start = dragStartIndex
                 withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
                     dragHeight = CGFloat(target - start) * rowStep      // settle into the slot
@@ -217,7 +245,7 @@ private struct SidebarContent: View {
 
     private var bottomBar: some View {
         VStack(spacing: 8) {
-            MediaCardView(tabs: tabs).padding(.horizontal, size.hPad)
+            if activitiesDock == "sidebar" { LiveActivitiesView(tabs: tabs).padding(.horizontal, size.hPad) }
             UpdateNowButton().padding(.horizontal, size.hPad)
             bottomControls
         }
@@ -264,13 +292,20 @@ private struct SidebarContent: View {
 struct SidebarBackground: View {
     let tint: Color?
     let isOverlay: Bool
-    @AppStorage(Pref.blurKey) private var blur = 0.85
-
+    @Environment(\.colorScheme) private var colorScheme
+    private var matchedTint: Color? {
+        guard let tint, let rgb = NSColor(tint).usingColorSpace(.sRGB) else { return nil }
+        let lightness = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent + 0.0722 * rgb.blueComponent
+        if colorScheme == .dark && lightness > 0.78 { return nil }
+        if colorScheme == .light && lightness < 0.16 { return nil }
+        return tint
+    }
+    @AppStorage("aero.glass.intensity") private var intensity = 0.85
     var body: some View {
         ZStack {
             VisualEffectView(material: .sidebar, blending: isOverlay ? .withinWindow : .behindWindow)
-                .opacity(isOverlay ? 1 : max(0.1, blur))
-            if let tint { tint.opacity(0.55) }
+                .opacity(isOverlay ? 1 : max(0.1, intensity))
+            if let tint = matchedTint { tint.opacity(0.93) }
         }
         .animation(.easeInOut(duration: 0.35), value: tint)
     }
@@ -281,6 +316,7 @@ struct SidebarBackground: View {
 private struct SidebarResizeHandle: View {
     @ObservedObject var state: BrowserState
     @State private var startWidth: CGFloat?
+    @State private var beganCompact = false
 
     var body: some View {
         Color.clear
@@ -289,9 +325,16 @@ private struct SidebarResizeHandle: View {
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: .global)
                     .onChanged { value in
-                        let start = startWidth ?? state.sidebarColumnWidth
-                        startWidth = start
-                        state.sidebarWidth = min(max(start + value.translation.width, state.sidebarSize.minWidth), 420)
+                        if startWidth == nil { startWidth = state.sidebarColumnWidth; beganCompact = state.layoutPreset == .compact }
+                        let proposed = (startWidth ?? state.sidebarColumnWidth) + value.translation.width
+                        let compact = beganCompact ? proposed < 84 : BrowserLayout.shouldCollapse(proposedWidth: proposed, minimumWidth: state.sidebarSize.minWidth)
+                        if compact {
+                            if state.layoutPreset != .compact { state.applyLayout(.compact); AeroHaptics.perform(.alignment) }
+                        } else {
+                            if state.layoutPreset == .compact { state.applyLayout(.classic); AeroHaptics.perform(.alignment) }
+                            let expanded = beganCompact ? state.sidebarSize.minWidth + proposed - 84 : proposed
+                            state.sidebarWidth = min(max(expanded, state.sidebarSize.minWidth), 420)
+                        }
                     }
                     .onEnded { _ in startWidth = nil; state.persistSidebarWidth() })
             .modifier(ColumnResizeCursor())
@@ -311,6 +354,7 @@ private struct ColumnResizeCursor: ViewModifier {
 // MARK: - Tiles and rows
 
 struct FavoriteTile: View {
+    @EnvironmentObject private var state: BrowserState
     let favorite: Favorite
     let liveTab: BrowserTab?
     let cell: CGFloat
@@ -325,24 +369,36 @@ struct FavoriteTile: View {
         Button(action: onOpen) {
             icon
                 .frame(width: cell, height: cell)
-                .glass(in: shape, tint: isCurrent ? Color.accentColor.opacity(0.35) : nil, interactive: true)
+                .glass(in: shape, tint: isCurrent ? Color.gray.opacity(0.24) : nil, interactive: true)
                 .overlay { shape.strokeBorder(Color.primary.opacity(isCurrent ? 0.35 : 0), lineWidth: 1).allowsHitTesting(false) }
                 .contentShape(shape)
         }
         .buttonStyle(RubberButtonStyle())
         .help(liveTab?.displayTitle ?? favorite.title)
+        .modifier(TabHoverPreview(tab: liveTab, fallbackTitle: favorite.title, fallbackURL: favorite.url))
         .contextMenu {
-            if liveTab != nil { Button("Close Tab", action: onCloseTab) }
-            Button("Remove from Favorites", action: onRemove)
+            if let liveTab { TabContextMenu(tab: liveTab) }
+            else {
+                Button("Open Tab", action: onOpen)
+                Button("Split with Current Tab") {
+                    guard let anchor = state.tabs.selectedTab else { return }
+                    let opened = state.tabs.newTab(url: favorite.url, select: false)
+                    state.tabs.registerFavoriteTab(opened, for: favorite)
+                    state.tabs.split(opened, with: anchor)
+                }
+                Button("Open in New Tab") { state.tabs.newTab(url: favorite.url) }
+                Button("Copy Link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(favorite.url.absoluteString, forType: .string) }
+                Button("Remove from Favorites", action: onRemove)
+            }
         }
     }
 
     @ViewBuilder
     private var icon: some View {
-        if let liveTab {
+        if let liveTab, liveTab.favicon != nil || liveTab.isLoading {
             TabFavicon(tab: liveTab, size: cell * 0.5)
         } else if let data = favorite.iconPNG, let image = NSImage(data: data) {
-            Image(nsImage: image).resizable().interpolation(.high)
+            FaviconImage(image: image)
                 .frame(width: cell * 0.5, height: cell * 0.5)
                 .clipShape(RoundedRectangle(cornerRadius: cell * 0.11, style: .continuous))
         } else {
@@ -380,11 +436,13 @@ struct PinnedTabTile: View {
             .onTapGesture(perform: onSelect)
             .onHover { hovering = $0 }
             .help(tab.displayTitle)
+            .modifier(TabHoverPreview(tab: tab))
             .contextMenu { TabContextMenu(tab: tab) }
     }
 }
 
 private struct SidebarTabRow: View {
+    @EnvironmentObject private var state: BrowserState
     @ObservedObject var tab: BrowserTab
     let size: SidebarSize
     let isSelected: Bool
@@ -399,16 +457,24 @@ private struct SidebarTabRow: View {
     var body: some View {
         HStack(spacing: 8) {
             TabFavicon(tab: tab, size: size.iconSize)
+            if let pane = state.tabs.splitIDs.firstIndex(of: tab.id) {
+                Text("\(pane + 1)").font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .frame(width: 16, height: 16)
+                    .background(Color.primary.opacity(0.1), in: RoundedRectangle(cornerRadius: 5))
+                    .help("Linked split · Pane \(pane + 1)")
+                    .accessibilityLabel("Split pane \(pane + 1)")
+            }
             Text(tab.displayTitle)
                 .font(.system(size: size.font, weight: isSelected ? .medium : .regular))
                 .lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            TabAudioBadge(tab: tab)
             if hovering || isSelected {
                 Button(action: onClose) {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
                         .frame(width: 18, height: 18).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(RubberButtonStyle())
                 .help("Close Tab")
             }
         }
@@ -421,5 +487,128 @@ private struct SidebarTabRow: View {
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
         .contextMenu { TabContextMenu(tab: tab) }
+    }
+}
+
+/// Observe precise trackpad scrolling only inside this sidebar; leave vertical scrolling alone.
+private struct SidebarSwipeSurface: NSViewRepresentable {
+    let width: CGFloat
+    let change: (CGFloat) -> Void
+    let settle: (Bool) -> Void
+    func makeNSView(context: Context) -> SwipeView { let view = SwipeView(); configure(view); return view }
+    func updateNSView(_ view: SwipeView, context: Context) { configure(view) }
+    private func configure(_ view: SwipeView) { view.width = width; view.change = change; view.settle = settle }
+    static func dismantleNSView(_ view: SwipeView, coordinator: ()) { view.stop() }
+    final class SwipeView: NSView {
+        var width: CGFloat = 0
+        var change: ((CGFloat) -> Void)?
+        var settle: ((Bool) -> Void)?
+        private var monitor: Any?
+        private var origin: CGFloat = 0
+        private var distance: CGFloat = 0
+        private var claimed = false
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow(); stop()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self, event.window === self.window, event.hasPreciseScrollingDeltas else { return event }
+                guard self.claimed || self.bounds.contains(self.convert(event.locationInWindow, from: nil)) else { return event }
+                guard event.momentumPhase.isEmpty else { return event }
+                if event.phase == .began { self.origin = self.width; self.distance = 0; self.claimed = false }
+                if event.phase == .ended || event.phase == .cancelled {
+                    guard self.claimed else { return event }
+                    self.claimed = false
+                    self.settle?(event.phase == .cancelled ? self.origin > 26 : self.width > 26)
+                    return nil
+                }
+                guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) || self.claimed else { return event }
+                self.claimed = true
+                self.distance += event.scrollingDeltaX
+                self.width = min(52, max(0, self.origin + self.distance))
+                self.change?(self.width)
+                return nil
+            }
+        }
+        func stop() { if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil }
+    }
+}
+
+
+/// Compact chrome keeps system window controls intact; detailed controls open at reading width.
+private struct CompactSidebarContent: View {
+    @ObservedObject var tabs: TabManager
+    @ObservedObject var state: BrowserState
+    @ObservedObject var favorites: FavoritesStore
+    @ObservedObject var tab: BrowserTab
+    let isOverlay: Bool
+    @State private var addressOpen = false
+
+    private var tint: Color? {
+        Pref.bool(Pref.tintKey, default: true) ? tab.themeColor.map { Color(nsColor: $0) } : nil
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            VerticalTrafficLights().frame(height: 84)
+            ChromeToggleButton(iconSize: state.sidebarSize.iconSize + 1, help: "Hide Sidebar (⌃⌘S)") {
+                state.toggleSidebar()
+            }.frame(height: 30)
+            NavigationPill(tab: tab, height: 28, iconSize: 15, vertical: true)
+            Button { addressOpen = true; state.pendingOmniboxFocus = true } label: {
+                Image(systemName: "magnifyingglass").frame(width: 32, height: 30)
+            }
+            .buttonStyle(.borderless).help("Search or enter website (⌘L)")
+            .accessibilityLabel("Address and page options")
+            .popover(isPresented: $addressOpen, arrowEdge: .trailing) {
+                VStack(spacing: 6) {
+                    OmniboxView(tab: tab, state: state, height: 36)
+                    if !state.suggestions.isEmpty { SuggestionsView(state: state) }
+                }.padding(12).frame(width: 360)
+            }
+            ScrollView {
+                VStack(spacing: 6) {
+                    ForEach(favorites.items) { favorite in
+                        let live = tabs.favoriteTab(for: favorite)
+                        FavoriteTile(favorite: favorite, liveTab: live, cell: 32,
+                            isCurrent: live?.id == tabs.selectedID,
+                            onOpen: { state.openFavorite(favorite) },
+                            onCloseTab: { if let live { tabs.closeTab(live) } },
+                            onRemove: { state.removeFavorite(favorite) })
+                    }
+                    if !favorites.items.isEmpty { Divider().padding(.horizontal, 12) }
+                    ForEach(tabs.pinnedTabs + tabs.unpinnedTabs) { item in
+                        PinnedTabTile(tab: item, cell: 32, isSelected: item.id == tabs.selectedID,
+                            onSelect: { tabs.selectTab(item) }, onUnpin: { tabs.togglePin(item) },
+                            onFavorite: { state.toggleFavorite(item) }, onClose: { tabs.closeTab(item) })
+                            .accessibilityLabel(item.displayTitle)
+                    }
+                    Button { state.newTab() } label: {
+                        Image(systemName: "plus").frame(width: 32, height: 30)
+                    }.buttonStyle(.borderless).help("New Tab (⌘T)")
+                }.frame(maxWidth: .infinity)
+            }.scrollIndicators(.hidden)
+            CompactLiveActivities(tabs: tabs)
+            DownloadsButton(diameter: 30, iconSize: 15)
+            Button { state.bookmarksOpen.toggle() } label: {
+                Image(systemName: "chevron.compact.right").font(.system(size: 20, weight: .medium))
+                    .frame(width: 28, height: 40)
+                    .glass(in: Capsule(), interactive: true)
+            }.buttonStyle(.borderless).help("Bookmarks (⌥⌘B)")
+                .accessibilityLabel("Bookmarks")
+                .popover(isPresented: $state.bookmarksOpen, arrowEdge: .trailing) {
+                    BookmarksPanel(store: state.bookmarks, state: state, maxHeight: 440).frame(width: 320)
+                }
+            ShareButton(url: tab.url, diameter: 30, iconSize: 15)
+        }
+        .padding(.bottom, 12)
+        .background { SidebarBackground(tint: tint, isOverlay: isOverlay).ignoresSafeArea() }
+        .contextMenu {
+            Button("Expand Sidebar") { state.applyLayout(.classic) }
+            Button("Activity Tools") { state.activitiesDrawerOpen.toggle() }
+            BackgroundContextMenu()
+        }
+        .onAppear { if state.pendingOmniboxFocus { addressOpen = true } }
+        .onValueChange(of: state.pendingOmniboxFocus) { if $0 { addressOpen = true } }
+        .onValueChange(of: tab.url) { _ in addressOpen = false }
     }
 }

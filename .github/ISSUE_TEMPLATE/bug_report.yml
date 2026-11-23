@@ -1,0 +1,25 @@
+name: Bug report
+description: Report a reproducible Aero problem
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities use SECURITY.md. Remove private browsing data from screenshots and logs."
+  - type: input
+    id: version
+    attributes:
+      label: Aero and macOS versions
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: Expected and actual behaviour
+    validations:
+      required: true

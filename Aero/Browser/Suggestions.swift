@@ -23,7 +23,8 @@ struct Suggestion: Identifiable {
 }
 
 extension BrowserState {
-    func updateSuggestions(_ text: String) {
+    func updateSuggestions(_ text: String, source: SuggestionSource = .omnibox) {
+        suggestionSource = source
         let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
         suggestTask?.cancel()
         guard !q.isEmpty else { clearSuggestions(); return }

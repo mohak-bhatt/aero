@@ -35,6 +35,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
         let hosting = NSHostingView(rootView: WindowView(state: state))
         if #available(macOS 13.0, *) { hosting.sceneBridgingOptions = [] }
+        // Sidebar chrome handles the title bar; web panes must fill the content view.
+        hosting.safeAreaRegions = []
         window.contentView = hosting
 
         super.init(window: window)
@@ -49,9 +51,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         }
 
         // Traffic lights ride along with the sidebar: hidden when it is hidden.
-        Publishers.CombineLatest4(state.$layout, state.$sidebarVisible, state.$sidebarPeeking, state.$isFullScreen)
-            .sink { [weak self] layout, visible, peeking, fullScreen in
-                self?.setLights(visible: layout == .horizontal || visible || peeking, fullScreen: fullScreen)
+        Publishers.CombineLatest4(state.$sidebarVisible, state.$sidebarPeeking, state.$isFullScreen, state.$layoutPreset)
+            .sink { [weak self] visible, peeking, fullScreen, preset in
+                self?.setLights(visible: visible || peeking || preset.isHorizontal, fullScreen: fullScreen)
             }
             .store(in: &cancellables)
         DispatchQueue.main.async { [weak self] in self?.updateMetrics() }
@@ -66,7 +68,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard let window, !window.styleMask.contains(.fullScreen) else { return }
         let height = window.frame.height - window.contentLayoutRect.height
         if height > 20 { state.titlebarHeight = height }
-        if let mini = window.standardWindowButton(.miniaturizeButton),
+        if state.layoutPreset != .compact,
+           let mini = window.standardWindowButton(.miniaturizeButton),
            let zoom = window.standardWindowButton(.zoomButton), let host = zoom.superview {
             let z = host.convert(zoom.frame, to: nil)
             let m = host.convert(mini.frame, to: nil)
@@ -85,14 +88,29 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.22
                 button.animator().alphaValue = visible ? 1 : 0
-            }, completionHandler: { if !visible { button.isHidden = true } })
+            }, completionHandler: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if !visible && !self.state.layoutPreset.isHorizontal && !self.state.sidebarVisible && !self.state.sidebarPeeking { button.isHidden = true }
+                }
+            })
         }
     }
 
     // MARK: NSWindowDelegate
 
-    func windowDidResize(_ notification: Notification) { updateMetrics() }
-    func windowDidBecomeKey(_ notification: Notification) { updateMetrics() }
+    private func restoreCompactLights() {
+        guard state.layoutPreset == .compact, let root = window?.contentView else { return }
+        func visit(_ view: NSView) {
+            if let host = view as? VerticalTrafficLights.Host { host.attach(); host.layoutSubtreeIfNeeded() }
+            else { for child in view.subviews { visit(child) } }
+        }
+        visit(root)
+    }
+    func windowDidEnterFullScreen(_ notification: Notification) { restoreCompactLights() }
+    func windowDidResize(_ notification: Notification) { updateMetrics(); restoreCompactLights(); state.saveSession() }
+    func windowDidMove(_ notification: Notification) { state.saveSession() }
+    func windowDidBecomeKey(_ notification: Notification) { updateMetrics(); state.saveSession() }
 
     func windowWillEnterFullScreen(_ notification: Notification) {
         state.isFullScreen = true
@@ -104,7 +122,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window?.toolbar = savedToolbar
         state.isFullScreen = false
         updateMetrics()
-        setLights(visible: state.layout == .horizontal || state.sidebarVisible || state.sidebarPeeking, fullScreen: false)
+        restoreCompactLights()
+        setLights(visible: state.sidebarVisible || state.sidebarPeeking || state.layoutPreset.isHorizontal, fullScreen: false)
     }
 
     func windowWillClose(_ notification: Notification) {

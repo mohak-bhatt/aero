@@ -1,31 +1,32 @@
-#!/bin/sh
-# Usage: ./scripts/release.sh 0.1.1
-# Builds Aero, makes Aero.dmg (for people) and Aero.zip (used by the in-app updater),
-# and publishes them as a GitHub pre-release. Safe to re-run for an existing version.
-set -e
-VERSION="$1"
-[ -z "$VERSION" ] && { echo "usage: $0 <version>"; exit 1; }
-
-xcodebuild -scheme Aero -configuration Release -derivedDataPath build \
-  CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO MARKETING_VERSION="$VERSION" clean build
-
-APP="build/Build/Products/Release/Aero.app"
-
-# Zip for the updater
-rm -f Aero.zip
-ditto -c -k --keepParent "$APP" Aero.zip
-
-# DMG with a drag-to-Applications shortcut
-rm -rf dmg-staging Aero.dmg
-mkdir dmg-staging
-cp -R "$APP" dmg-staging/
-ln -s /Applications dmg-staging/Applications
-hdiutil create -volname "Aero" -srcfolder dmg-staging -ov -format UDZO Aero.dmg
-rm -rf dmg-staging
-
-if gh release view "v$VERSION" >/dev/null 2>&1; then
-  gh release upload "v$VERSION" Aero.zip Aero.dmg --clobber
-else
-  gh release create "v$VERSION" Aero.dmg Aero.zip --prerelease --title "Aero $VERSION" --generate-notes
+#!/bin/bash
+# Package locally. Publishing is separate and requires an existing tested tag.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+version=${1:-}
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Usage: scripts/release.sh VERSION [--publish]'; exit 1; }
+mode=${2:-}
+[[ -z "$mode" || "$mode" == --publish ]] || { echo 'Unknown option'; exit 1; }
+out="$PWD/build/releases/$version"
+mkdir -p "$out"
+xcodebuild -project Aero.xcodeproj -scheme Aero -configuration Release \
+  -derivedDataPath "$PWD/build/ReleasePackage" ARCHS=arm64 \
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO \
+  MARKETING_VERSION="$version" build
+app="$PWD/build/ReleasePackage/Build/Products/Release/Aero.app"
+actual=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")
+[[ "$actual" == "$version" ]] || { echo 'Version mismatch'; exit 1; }
+codesign --verify --deep --strict "$app"
+staging=$(mktemp -d "${TMPDIR:-/tmp}/aero-dmg.XXXXXX")
+trap 'rm -rf "$staging"' EXIT
+ditto "$app" "$staging/Aero.app"
+ln -s /Applications "$staging/Applications"
+ditto -c -k --keepParent "$app" "$out/Aero.zip"
+hdiutil create -volname Aero -srcfolder "$staging" -ov -format UDZO "$out/Aero.dmg"
+(cd "$out" && shasum -a 256 Aero.zip Aero.dmg > SHA256SUMS)
+if [[ "$mode" == --publish ]]; then
+  [[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo 'Commit tracked changes before publishing'; exit 1; }
+  [[ "$(git rev-parse HEAD)" == "$(git rev-list -n 1 "v$version")" ]] || { echo 'Tag must match HEAD'; exit 1; }
+  gh release create "v$version" "$out/Aero.zip" "$out/Aero.dmg" "$out/SHA256SUMS" \
+    --repo mohak-bhatt/aero --verify-tag --prerelease --title "Aero $version" --notes-file CHANGELOG.md
 fi
-echo "Published v$VERSION"
+printf 'Packaged %s\n' "$out"

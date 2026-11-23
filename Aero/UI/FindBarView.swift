@@ -31,7 +31,7 @@ struct FindBarView: View {
             ChromeIconButton(symbol: "chevron.up", help: "Previous (⇧⌘G)") { state.find(backwards: true) }
             ChromeIconButton(symbol: "chevron.down", help: "Next (⌘G)") { state.find(backwards: false) }
             Button("Done") { state.hideFind() }
-                .buttonStyle(.plain)
+                .buttonStyle(RubberButtonStyle())
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)

@@ -123,7 +123,7 @@ struct BookmarksPanel: View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 12, weight: .medium)).frame(width: 24, height: 24).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).help(help)
+        .buttonStyle(RubberButtonStyle()).help(help)
     }
 }
 
@@ -200,73 +200,5 @@ struct BookmarkMenuItems: View {
                 Button(node.title) { open(node) }
             }
         }
-    }
-}
-
-/// Horizontal layout, row 3: favourites then bookmarks, compact like a classic bookmarks bar.
-struct BookmarksBar: View {
-    let state: BrowserState
-    @ObservedObject var favorites: FavoritesStore
-    @ObservedObject var store: BookmarkStore
-    @ObservedObject var tabs: TabManager
-
-    var body: some View {
-        if !favorites.items.isEmpty || !store.items.isEmpty {
-            GeometryReader { geo in
-            ScrollView(.horizontal) {
-                HStack(spacing: 4) {
-                    ForEach(favorites.items) { favorite in
-                        let live = tabs.favoriteTab(for: favorite)
-                        FavoriteTile(favorite: favorite, liveTab: live, cell: 26,
-                                     isCurrent: live != nil && live?.id == tabs.selectedID,
-                                     onOpen: { state.openFavorite(favorite) },
-                                     onCloseTab: { if let live { tabs.closeTab(live) } },
-                                     onRemove: { state.removeFavorite(favorite) })
-                    }
-                    if !favorites.items.isEmpty && !store.items.isEmpty {
-                        Rectangle().fill(Color.primary.opacity(0.15)).frame(width: 0.5, height: 16).padding(.horizontal, 4)
-                    }
-                    ForEach(store.items) { node in
-                        BarItem(node: node, store: store, state: state)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .frame(minWidth: geo.size.width)
-            }
-            .scrollIndicators(.hidden)
-            }
-            .frame(height: 32)
-        }
-    }
-}
-
-private struct BarItem: View {
-    let node: BookmarkNode
-    @ObservedObject var store: BookmarkStore
-    let state: BrowserState
-    @State private var hovering = false
-
-    var body: some View {
-        Group {
-            if node.isFolder {
-                Menu {
-                    BookmarkMenuItems(nodes: node.children ?? []) { state.openBookmark($0, inNewTab: false) }
-                } label: { label }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            } else {
-                Button { state.openBookmark(node, inNewTab: false) } label: { label }.buttonStyle(.plain)
-            }
-        }
-        .contextMenu { BookmarkContextMenu(node: node, store: store, state: state) }
-    }
-
-    private var label: some View {
-        HStack(spacing: 5) {
-            BookmarkIcon(node: node, size: 13)
-            Text(node.title).font(.system(size: 12)).lineLimit(1)
-        }
-        .padding(.horizontal, 8).frame(height: 24)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(hovering ? 0.1 : 0)))
-        .onHover { hovering = $0 }
     }
 }

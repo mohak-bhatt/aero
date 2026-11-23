@@ -7,6 +7,8 @@ import WebKit
 final class TabManager: ObservableObject, TabHost {
     @Published private(set) var tabs: [BrowserTab] = []
     @Published private(set) var selectedID: UUID?
+    @Published var splitStacked = false
+    @Published private(set) var splitIDs: [UUID] = []
     @Published private(set) var pinnedIDs: [UUID] = []
     /// favourite id -> id of the live tab that represents it (hidden from the tab list)
     @Published private(set) var favoriteTabs: [UUID: UUID] = [:]
@@ -94,6 +96,48 @@ final class TabManager: ObservableObject, TabHost {
 
     var recentlyClosedCount: Int { recentlyClosed.count }
 
+    // MARK: Split view (2–4 tabs side by side; 4 forms a 2×2 grid)
+
+    var splitTabs: [BrowserTab] { splitIDs.compactMap { id in tabs.first { $0.id == id } } }
+    var selectedSplit: [BrowserTab]? {
+        guard let id = selectedID, splitIDs.count > 1, splitIDs.contains(id) else { return nil }
+        return splitTabs
+    }
+    func isInSplit(_ tab: BrowserTab) -> Bool { splitIDs.contains(tab.id) }
+
+    func split(_ tab: BrowserTab, with anchor: BrowserTab, placeBefore: Bool = false) {
+        guard tab.id != anchor.id else { return }
+        if !splitIDs.contains(anchor.id) { splitIDs = [anchor.id] }
+        if !splitIDs.contains(tab.id) {
+            guard splitIDs.count < 4 else { selectTab(tab); return }
+            if placeBefore, let index = splitIDs.firstIndex(of: anchor.id) {
+                splitIDs.insert(tab.id, at: index)
+            } else {
+                splitIDs.append(tab.id)
+            }
+        }
+        for pane in splitTabs { pane.activate() }
+        selectTab(tab)
+    }
+
+    func removeFromSplit(_ tab: BrowserTab) {
+        splitIDs.removeAll { $0 == tab.id }
+        if splitIDs.count < 2 { splitIDs = [] }
+    }
+
+    func exitSplit() { splitIDs = [] }
+
+    func moveSplitPane(_ tab: BrowserTab, by offset: Int) {
+        guard let index = splitIDs.firstIndex(of: tab.id), splitIDs.indices.contains(index + offset) else { return }
+        splitIDs.swapAt(index, index + offset)
+    }
+
+    func focusOnly(_ tab: BrowserTab) { exitSplit(); selectTab(tab) }
+
+    func tabDidFocus(_ tab: BrowserTab) {
+        if splitIDs.contains(tab.id), selectedID != tab.id { selectedID = tab.id }
+    }
+
     func isPinned(_ tab: BrowserTab) -> Bool { pinnedIDs.contains(tab.id) }
 
     func togglePin(_ tab: BrowserTab) {
@@ -121,6 +165,7 @@ final class TabManager: ObservableObject, TabHost {
         let wasSelected = tab.id == selectedID
         tabs.remove(at: index)
         pinnedIDs.removeAll { $0 == tab.id }
+        removeFromSplit(tab)
         favoriteTabs = favoriteTabs.filter { $0.value != tab.id }
         tab.host = nil
         if tabs.isEmpty {
@@ -156,15 +201,24 @@ final class TabManager: ObservableObject, TabHost {
     }
 
     func restore(_ snapshot: SessionSnapshot) {
-        guard !snapshot.entries.isEmpty else { return }
-        let selected = min(max(snapshot.selectedIndex, 0), snapshot.entries.count - 1)
+        guard tabs.isEmpty, let selected = snapshot.restoredSelectedIndex else { return }
+        let panes = snapshot.restoredSplitIndices
+        let visible = panes.contains(selected) ? Set(panes) : [selected]
         for (index, entry) in snapshot.entries.enumerated() {
-            let tab = BrowserTab(url: entry.url, title: entry.title, loadImmediately: index == selected)
+            let tab = BrowserTab(url: entry.url, title: entry.title, loadImmediately: visible.contains(index))
             tab.host = self
             tabs.append(tab)
-            if entry.pinned == true { pinnedIDs.append(tab.id) }
+            if let favoriteID = entry.favoriteID,
+               FavoritesStore.shared.items.contains(where: { $0.id == favoriteID }),
+               favoriteTabs[favoriteID] == nil {
+                favoriteTabs[favoriteID] = tab.id
+            } else if entry.pinned == true {
+                pinnedIDs.append(tab.id)
+            }
         }
-        selectedID = tabs[selected].id
+        splitStacked = snapshot.splitStacked ?? false
+        splitIDs = panes.map { tabs[$0].id }
+        selectTab(tabs[selected])
     }
 
     // MARK: Selection
@@ -180,6 +234,7 @@ final class TabManager: ObservableObject, TabHost {
         mru.removeAll { $0 == tab.id }
         mru.insert(tab.id, at: 0)
         tab.activate()
+        if splitIDs.contains(tab.id) { for pane in splitTabs { pane.activate() } }
     }
 
     func selectTab(at index: Int) {
@@ -202,6 +257,7 @@ final class TabManager: ObservableObject, TabHost {
         let wasSelected = tab.id == selectedID
         tabs.remove(at: index)
         pinnedIDs.removeAll { $0 == tab.id }
+        removeFromSplit(tab)
         favoriteTabs = favoriteTabs.filter { $0.value != tab.id }
         tab.tearDown()
 
@@ -224,12 +280,13 @@ final class TabManager: ObservableObject, TabHost {
     // MARK: Session
 
     func snapshot() -> SessionSnapshot {
-        let entries = tabs.compactMap { tab -> SessionSnapshot.Entry? in
-            guard let url = tab.url, !favoriteTabs.values.contains(tab.id) else { return nil }
-            return .init(url: url, title: tab.title, pinned: pinnedIDs.contains(tab.id))
+        let entries = tabs.map { tab in
+            SessionSnapshot.Entry(url: tab.url ?? tab.pendingURL, title: tab.title,
+                                  pinned: pinnedIDs.contains(tab.id), favoriteID: favoriteID(of: tab))
         }
-        let selected = tabs.filter { $0.url != nil && !favoriteTabs.values.contains($0.id) }.firstIndex { $0.id == selectedID } ?? 0
-        return SessionSnapshot(entries: entries, selectedIndex: selected)
+        let selected = tabs.firstIndex { $0.id == selectedID } ?? 0
+        let panes = splitIDs.compactMap { id in tabs.firstIndex { $0.id == id } }
+        return SessionSnapshot(entries: entries, selectedIndex: selected, version: 2, splitIndices: panes, splitStacked: splitStacked)
     }
 
     // MARK: TabHost

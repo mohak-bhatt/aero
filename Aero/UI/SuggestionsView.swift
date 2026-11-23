@@ -31,7 +31,7 @@ struct SuggestionsView: View {
                     .frame(height: suggestion.subtitle == nil ? 28 : 38)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(RubberButtonStyle())
                 .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(Color.primary.opacity(state.suggestionIndex == index ? 0.14 : 0)))
                 .onHover { if $0 { state.suggestionIndex = index } }

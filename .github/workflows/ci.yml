@@ -1,0 +1,30 @@
+name: Build and tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  macos:
+    name: macOS build and regressions
+    runs-on: macos-26
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build
+        run: xcodebuild -project Aero.xcodeproj -scheme Aero -configuration Debug -derivedDataPath build/CI CODE_SIGNING_ALLOWED=NO build
+      - name: Core regressions
+        run: bash scripts/test-core.sh
+      - name: Integration regressions
+        run: bash scripts/test-integration.sh
+      - name: Whitespace errors
+        run: git diff --check
