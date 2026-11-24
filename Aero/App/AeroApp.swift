@@ -32,7 +32,8 @@ struct AeroCommands: Commands {
             .filter { Bundle(url: $0)?.bundleIdentifier != Bundle.main.bundleIdentifier }
     }
 
-    var body: some Commands {
+    @CommandsBuilder
+    private var appMenus: some Commands {
         // MARK: App menu (Settings… comes from the Settings scene)
         CommandGroup(replacing: .appInfo) {
             Button("About Aero") { AboutWindow.show() }
@@ -49,6 +50,11 @@ struct AeroCommands: Commands {
             Button("Welcome Tour…") { Onboarding.show() }
             Button("What’s New in Aero") { WhatsNewWindow.show() }
         }
+
+    }
+
+    var body: some Commands {
+        appMenus
 
         // MARK: File
         CommandGroup(replacing: .newItem) {
