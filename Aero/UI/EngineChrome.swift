@@ -192,6 +192,7 @@ private struct EngineElementView: View {
                 }
             }
         }
+        .frame(minHeight: state.engineEditing ? 36 : nil)
         .scaleEffect(item.large ? 1.08 : 1)
         .padding(item.large ? 2 : 0)
         .font(.system(size: item.large ? 18 : 15, weight: .medium))
