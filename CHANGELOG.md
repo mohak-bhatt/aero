@@ -1,5 +1,16 @@
 # Changelog
 
+## Aero 0.2.2 preview — updater migration
+
+Updates now use Sparkle 2.10.1 to verify signed archives, install and relaunch Aero. Update Now no longer opens GitHub instead of installing. The app embeds the public Ed25519 verification key; release signing uses a private key held in Keychain.
+
+**One-time migration:** 0.2.0 and 0.2.1 contain a manual-release-page updater. Quit your installed Aero (including one renamed AeroX), download this build, and replace that app at its existing location. Preserve the filename if desired. Do not delete browser data. Future updates use the new installer.
+
+Validation: actual replacement of a disposable renamed AeroX copy; modified archive rejected without replacement; isolated marker fixture successfully terminated, updated and relaunched. Core and integration regressions pass. Real-user browsing-session restoration and all interruption/permission cases are not fully validated.
+
+This remains an ad-hoc signed, non-notarized Apple Silicon preview for macOS 26.5+. Update archive signing does not constitute notarization. Other documented preview limitations remain.
+
+
 ## 0.2.0 — 2026-11-23 (preview)
 
 ### Added and improved

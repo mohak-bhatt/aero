@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Sparkle
 
 struct ReleaseInfo: Equatable {
     let version: String
@@ -8,7 +9,7 @@ struct ReleaseInfo: Equatable {
     let assetURL: URL?
 }
 
-/// Checks GitHub Releases and opens the trusted release page for manual updates.
+/// Sparkle verifies signed update archives and owns installation and relaunch.
 @MainActor
 final class UpdateManager: ObservableObject {
     static let shared = UpdateManager()
@@ -20,6 +21,7 @@ final class UpdateManager: ObservableObject {
 
     @Published private(set) var status: Status = .idle
     @Published private(set) var release: ReleaseInfo?
+    private lazy var installer = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     private let lastCheckKey = "aero.lastUpdateCheck"
 
     var currentVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
@@ -54,11 +56,9 @@ final class UpdateManager: ObservableObject {
         }
     }
 
-    /// Manual updates until a signed, verified installer with rollback is integrated.
     func install() {
-        guard let release, status == .available,
-              UpdatePolicy.isTrustedReleasePage(release.pageURL) else { return }
-        NSWorkspace.shared.open(release.pageURL)
+        guard status == .available else { return }
+        installer.checkForUpdates(nil)
     }
 
     nonisolated static func fetchLatest() async throws -> ReleaseInfo? {

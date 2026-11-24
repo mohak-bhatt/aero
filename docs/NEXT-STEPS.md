@@ -1,5 +1,16 @@
 # Aero roadmap after 0.2.1
 
+## Update recovery — current priority
+Cause confirmed: 0.2.0/0.2.1's Update Now opens a release page; it does not install.
+Sparkle 2.10.1 is now integrated locally with an embedded public verification key,
+a signed seed appcast and Keychain-held private key. Debug build and 147 regression
+checks pass; independent signature testing accepts the original ZIP and rejects a
+modified archive. Disposable renamed-app installation and isolated relaunch passed; modified archives were rejected. Migration build 0.2.2 is prepared. The user’s AeroX has not been replaced.
+
+Remaining acceptance gates: interrupted downloads, permission failures and real browser session/preferences restoration. Then publish a migration build and signed feed together. Old
+0.2.0/0.2.1 installations need one manual migration; do not promise the broken updater
+can bootstrap itself. Resume browser/Engine milestones after this gate.
+
 ## 1. Stabilise the shipping vertical browser
 Gate: hardware acceptance of swipe menu, pull-to-refresh, both history directions,
 Force Touch, fullscreen traffic lights and resizing; no double haptics, wrong-arrow

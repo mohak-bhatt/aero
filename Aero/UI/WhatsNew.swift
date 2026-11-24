@@ -31,6 +31,11 @@ enum WhatsNew {
 
     static func release(for version: String) -> WhatsNewRelease? {
         switch version {
+        case "0.2.2":
+            return WhatsNewRelease(headline: "What’s new in Aero 0.2.2", subtitle: "Updates that install inside Aero.", items: [
+                WhatsNewItem(symbol: "arrow.down.circle", title: "Signed in-app updates", detail: "Future updates use Sparkle to verify, install and relaunch Aero. Renamed installations keep their location.", tint: .blue),
+                WhatsNewItem(symbol: "checkmark.shield", title: "Verified downloads", detail: "Update archives must match Aero’s embedded signing key before installation.", tint: .green)
+            ])
         case "0.2.1":
             return WhatsNewRelease(headline: "What’s new in Aero 0.2.1", subtitle: "Quieter previews. More responsive gestures.", items: [
                 WhatsNewItem(symbol: "hand.draw", title: "Gesture feedback", detail: "Feedback at the menu and pull-to-refresh thresholds. Only the affected navigation arrow bounces, as navigation starts.", tint: .orange),
