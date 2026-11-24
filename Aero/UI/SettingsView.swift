@@ -224,7 +224,12 @@ struct EngineSetupView: View {
                     .disabled(layout.preset == .compact)
                 Toggle("Match website colour", isOn: $tint)
             }
-            Section("Interaction") { Toggle("Haptic feedback", isOn: $haptics) }
+            Section("Interaction") {
+                Toggle("Haptic feedback", isOn: $haptics)
+                Button("Test Trackpad Feedback") { AeroHaptics.perform(.generic) }.disabled(!haptics)
+                Text("Use the Force Touch trackpad to test feedback. macOS controls delivery through the current input device and system preferences.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }.formStyle(.grouped)
     }
     private func apply() {
