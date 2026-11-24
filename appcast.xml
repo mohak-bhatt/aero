@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Aero Preview Updates</title>
+    <item>
+      <title>Aero 0.2.2</title>
+      <sparkle:version>22</sparkle:version>
+      <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.5</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/mohak-bhatt/aero/releases/download/v0.2.2/Aero.zip" length="8942908" type="application/octet-stream" sparkle:edSignature="0aeVXk5YR1lyQh7EDp9Jvb0RHcGHM8i3v9YmZ308AHJINEU5nYKMf3QU3k2rH7OBRaltEMn75wSfAIclvK3OBg==" />
+    </item>
+  </channel>
+</rss>
