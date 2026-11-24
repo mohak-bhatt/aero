@@ -7,6 +7,11 @@ extension BrowserTab: WKNavigationDelegate {
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         if navigationAction.navigationType == .backForward, navigationAction.targetFrame?.isMainFrame == true {
+            if !historyNavigationPending {
+                let target = navigationAction.request.url
+                let back = webView.backForwardList.backList.contains { $0.url == target }
+                activateHistoryFeedback(back: back)
+            }
             historyNavigationPending = true
             (webView as? AeroWebView)?.markHistoryNavigation()
         }

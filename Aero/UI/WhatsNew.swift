@@ -31,6 +31,12 @@ enum WhatsNew {
 
     static func release(for version: String) -> WhatsNewRelease? {
         switch version {
+        case "0.2.1":
+            return WhatsNewRelease(headline: "What’s new in Aero 0.2.1", subtitle: "Quieter previews. More responsive gestures.", items: [
+                WhatsNewItem(symbol: "hand.draw", title: "Gesture feedback", detail: "Feedback at the menu and pull-to-refresh thresholds. Only the affected navigation arrow bounces, as navigation starts.", tint: .orange),
+                WhatsNewItem(symbol: "waveform", title: "Living compact activities", detail: "Coloured playback indicators, countdowns and progress in the compact sidebar.", tint: .pink),
+                WhatsNewItem(symbol: "eye", title: "Quieter tab previews", detail: "No hover previews for favourites or visible tabs. Background-tab previews appear without an opening animation.", tint: .blue)
+            ])
         case "0.2.0":
             return WhatsNewRelease(
                 headline: "What’s new in Aero 0.2.0",

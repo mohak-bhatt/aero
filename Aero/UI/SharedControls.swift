@@ -32,10 +32,10 @@ struct NavigationPill: View {
                 .frame(width: height * 0.95, height: height)
                 .contentShape(Rectangle())
         }
-        .keyframeAnimator(initialValue: CGFloat(1), trigger: reduceMotion ? 0 : tab.historyNavigationPulse) { view, scale in
+        .keyframeAnimator(initialValue: CGFloat(1), trigger: reduceMotion ? 0 : (symbol == "chevron.left" ? tab.backPulse : tab.forwardPulse)) { view, scale in
             view.scaleEffect(scale)
         } keyframes: { _ in
-            CubicKeyframe(1.22, duration: 0.10)
+            CubicKeyframe(1.32, duration: 0.10)
             SpringKeyframe(1, duration: 0.32, spring: .bouncy)
         }
         .buttonStyle(RubberButtonStyle())

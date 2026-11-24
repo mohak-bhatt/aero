@@ -152,14 +152,14 @@ struct CompactLiveActivities: View {
     var body: some View {
         VStack(spacing: 6) {
             ForEach(store.activities) { activity in
-                CompactActivityBubble(symbol: activity.kind == .timer ? "timer" : activity.kind == .clock ? "clock" : "bell", title: activity.title) {
+                CompactActivityBubble(symbol: activitySymbol(activity), title: activity.title, tint: activityTint(activity), activity: activity) {
                     LiveActivitiesView(tabs: tabs, onlyActivityID: activity.id, includesMedia: false)
                 }.contextMenu {
                     Button("Dismiss Live Activity") { store.remove(activity.id) }
                 }
             }
             ForEach(tabs.tabs.filter { tab in media.items[tab.id] != nil && media.permits(tab.id, url: tab.url) && tab.id != tabs.selectedID && !tabs.splitIDs.contains(tab.id) }) { tab in
-                CompactActivityBubble(symbol: media.items[tab.id]?.isVideo == true ? "play.rectangle" : "waveform", title: media.items[tab.id]?.title ?? "Now Playing") {
+                CompactActivityBubble(symbol: media.items[tab.id]?.isVideo == true ? "play.rectangle" : "waveform", title: media.items[tab.id]?.title ?? "Now Playing", tint: media.items[tab.id]?.isVideo == true ? .purple : .pink, mediaInfo: media.items[tab.id]) {
                     MediaCardView(tabs: tabs, onlyTabID: tab.id)
                 }.contextMenu {
                     Button("Go to Playing Tab") { tabs.selectTab(tab) }
@@ -168,18 +168,77 @@ struct CompactLiveActivities: View {
             }
         }
     }
+    private func activitySymbol(_ activity: LiveActivity) -> String {
+        if activity.status == .completed { return "checkmark" }
+        if activity.status == .failed { return "exclamationmark" }
+        switch activity.kind {
+        case .timer: return "timer"
+        case .clock: return "clock"
+        case .notification: return "bell.fill"
+        case .assistantTask: return "sparkles"
+        case .timeLimit: return "hourglass"
+        case .meeting: return "video.fill"
+        }
+    }
+    private func activityTint(_ activity: LiveActivity) -> Color {
+        if activity.status == .failed { return .red }
+        if activity.status == .completed { return .green }
+        switch activity.kind {
+        case .timer, .timeLimit: return .orange
+        case .clock: return .cyan
+        case .notification: return .yellow
+        case .assistantTask: return .purple
+        case .meeting: return .green
+        }
+    }
+
 }
 
 private struct CompactActivityBubble<Detail: View>: View {
     let symbol: String
     let title: String
+    var tint: Color = .orange
+    var activity: LiveActivity? = nil
+    var mediaInfo: MediaInfo? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewBuilder var detail: () -> Detail
     @State private var open = false
     @State private var dismissal: DispatchWorkItem?
     var body: some View {
         Button { open.toggle() } label: {
-            Image(systemName: symbol).font(.system(size: 14, weight: .medium))
-                .frame(width: 30, height: 30).glass(in: Circle(), interactive: true)
+            VStack(spacing: 3) {
+                ZStack {
+                    if let info = mediaInfo {
+                        if info.isVideo {
+                            Image(systemName: info.isPlaying ? "play.fill" : "pause.fill").font(.system(size: 12, weight: .bold))
+                        } else { PlaybackIndicator(isPlaying: info.isPlaying, tint: tint) }
+                    } else if activity?.kind == .clock {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Image(systemName: "clock")
+                                .overlay { Rectangle().frame(width: 1, height: 7).offset(y: -3)
+                                    .rotationEffect(.degrees(context.date.timeIntervalSince1970.truncatingRemainder(dividingBy: 60) * 6)) }
+                        }
+                    } else {
+                        Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
+                            .symbolEffect(.pulse, options: .repeating, isActive: activity?.kind == .assistantTask && activity?.status == .running && !reduceMotion)
+                    }
+                }.frame(width: 24, height: 22)
+                if let deadline = activity?.deadline, activity?.status == .running {
+                    Text(deadline, style: .timer).font(.system(size: 8, weight: .semibold, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                } else if let info = mediaInfo, info.duration.isFinite, info.duration > 0, info.currentTime.isFinite {
+                    Capsule().fill(tint.opacity(0.2)).frame(width: 22, height: 2)
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(tint).frame(width: 22 * min(1, max(0, info.currentTime / info.duration)), height: 2)
+                        }
+                } else if activity?.status == .paused {
+                    Image(systemName: "pause.fill").font(.system(size: 6))
+                }
+            }
+            .foregroundStyle(tint).padding(.vertical, 6).frame(width: 34)
+            .background(tint.opacity(0.14), in: Capsule())
+            .overlay(Capsule().strokeBorder(tint.opacity(open ? 0.55 : 0.2), lineWidth: 0.5))
+            .scaleEffect(open ? 1.08 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.8), value: open)
         }
         .buttonStyle(.plain).help(title).accessibilityLabel(title)
         .onHover(perform: hovering)

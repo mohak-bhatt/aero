@@ -49,7 +49,7 @@ final class AeroWebView: WKWebView {
                 } else if pullAllowed {
                     pullDistance = max(0, min(140, pullDistance + event.scrollingDeltaY))
                     let armed = pullDistance >= 100
-                    if armed && !pullArmed { AeroHaptics.perform(.alignment) }
+                    if armed && !pullArmed { AeroHaptics.perform(.generic) }
                     pullArmed = armed
                     onPullProgress?(min(1, pullDistance / 100))
                 }

@@ -33,12 +33,10 @@ struct SidebarView: View {
                 var transaction = Transaction(); transaction.disablesAnimations = true
                 withTransaction(transaction) { state.activitiesDragWidth = width }
             } settle: { open in
-                let changed = open != state.activitiesDrawerOpen
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
                     state.activitiesDragWidth = nil
                     state.activitiesDrawerOpen = open
                 }
-                if changed { AeroHaptics.perform(.alignment) }
             })
         } else {
             Color.clear
@@ -375,7 +373,7 @@ struct FavoriteTile: View {
         }
         .buttonStyle(RubberButtonStyle())
         .help(liveTab?.displayTitle ?? favorite.title)
-        .modifier(TabHoverPreview(tab: liveTab, fallbackTitle: favorite.title, fallbackURL: favorite.url))
+        .modifier(TabHoverPreview(tab: liveTab, fallbackTitle: favorite.title, fallbackURL: favorite.url, previewsEnabled: false))
         .contextMenu {
             if let liveTab { TabContextMenu(tab: liveTab) }
             else {
@@ -524,7 +522,9 @@ private struct SidebarSwipeSurface: NSViewRepresentable {
                 guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) || self.claimed else { return event }
                 self.claimed = true
                 self.distance += event.scrollingDeltaX
+                let previous = self.width
                 self.width = min(52, max(0, self.origin + self.distance))
+                if (previous > 26) != (self.width > 26) { AeroHaptics.perform(.generic) }
                 self.change?(self.width)
                 return nil
             }

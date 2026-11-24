@@ -268,7 +268,7 @@ private struct AudioCard: View {
 }
 
 /// Decorative playback state indicator; does not capture or analyse website audio.
-private struct PlaybackIndicator: View {
+struct PlaybackIndicator: View {
     let isPlaying: Bool
     let tint: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

@@ -31,12 +31,17 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
         if let mediaFrame, !mediaFrame.isMainFrame { webView.evaluateJavaScript(script, in: mediaFrame, in: .page) { _ in } }
     }
     @Published var historyNavigationPulse = 0
+    @Published var backPulse = 0
+    @Published var forwardPulse = 0
+    func activateHistoryFeedback(back: Bool) {
+        if back { backPulse += 1 } else { forwardPulse += 1 }
+        AeroHaptics.perform(.generic)
+    }
     var historyNavigationPending = false
     func completeHistoryNavigation() {
         guard historyNavigationPending else { return }
         historyNavigationPending = false
         historyNavigationPulse += 1
-        AeroHaptics.perform(.generic)
     }
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false

@@ -1,12 +1,14 @@
 import SwiftUI
+import AppKit
 
-/// The same interactive preview serves ordinary, pinned and favourite tabs.
+/// Interactive previews serve background ordinary and pinned tabs; favourites stay quiet.
 struct TabHoverPreview: ViewModifier {
     @EnvironmentObject var state: BrowserState
     let tab: BrowserTab?
     var fallbackTitle = ""
     var fallbackURL: URL? = nil
     var showsSplitBadge = true
+    var previewsEnabled = true
     @State private var open = false
     @State private var pending: DispatchWorkItem?
     func body(content: Content) -> some View {
@@ -20,7 +22,7 @@ struct TabHoverPreview: ViewModifier {
                 }
             }
             .onHover { inside in schedule(inside, delay: inside ? 0.45 : 0.35) }
-            .popover(isPresented: $open, arrowEdge: .trailing) {
+            .background(InstantTabPopover(isPresented: $open) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(tab?.displayTitle ?? fallbackTitle).font(.system(size: 12, weight: .semibold)).lineLimit(2)
@@ -38,12 +40,23 @@ struct TabHoverPreview: ViewModifier {
                     Text((tab?.url ?? fallbackURL)?.host ?? "New Tab").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }.padding(12).frame(width: 248)
                     .onHover { inside in schedule(inside, delay: inside ? 0 : 0.35) }
+                    .environmentObject(state)
+            })
+            .onReceive(state.tabs.$selectedID) { selectedID in
+                if selectedID == tab?.id { pending?.cancel(); open = false }
             }
             .onDisappear { pending?.cancel(); open = false }
     }
     private func schedule(_ inside: Bool, delay: Double) {
         pending?.cancel()
-        let work = DispatchWorkItem { if state.drag == nil { open = inside } else { open = false } }
+        let work = DispatchWorkItem {
+            guard previewsEnabled, let tab, tab.id != state.tabs.selectedID,
+                  !state.tabs.splitIDs.contains(tab.id), state.tabs.favoriteID(of: tab) == nil else {
+                open = false
+                return
+            }
+            open = inside && state.drag == nil
+        }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
@@ -70,4 +83,23 @@ struct HoverPreviewOverlay: View {
     @ObservedObject var state: BrowserState
     @ObservedObject var tabs: TabManager
     var body: some View { EmptyView() }
+}
+
+/// AppKit owns the presentation so its zoom animation can actually be disabled.
+private struct InstantTabPopover<Detail: View>: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    @ViewBuilder var detail: () -> Detail
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ view: NSView, context: Context) {
+        let popover = context.coordinator.popover
+        popover.animates = false
+        popover.behavior = .applicationDefined
+        if isPresented, view.window != nil {
+            popover.contentViewController = NSHostingController(rootView: detail())
+            if !popover.isShown { popover.show(relativeTo: view.bounds, of: view, preferredEdge: .maxX) }
+        } else { popover.close() }
+    }
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) { coordinator.popover.close() }
+    final class Coordinator { let popover = NSPopover() }
 }
