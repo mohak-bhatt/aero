@@ -158,6 +158,15 @@ final class BrowserState: ObservableObject {
     }
 
     func applyLayout(_ preset: BrowserLayout.Preset) {
+        if engine.enabled {
+            engine.update { configuration in
+                configuration = .preset(preset.isHorizontal ? .top : .left,
+                    compact: preset == .compact || preset == .compactHorizontal)
+            }
+            sidebarVisible = preset != .focus
+            sidebarPeeking = false
+            return
+        }
         guard !preset.isHorizontal else { return }
         var layout = BrowserLayout.configuration(for: preset)
         layout.sidebarWidth = Double(sidebarWidth)
