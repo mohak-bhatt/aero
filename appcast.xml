@@ -7,7 +7,7 @@
       <sparkle:version>23</sparkle:version>
       <sparkle:shortVersionString>0.2.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.5</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/mohak-bhatt/aero/releases/download/v0.2.3/Aero.zip" length="9065608" type="application/octet-stream" sparkle:edSignature="IoF7O+HyPTOlJHjNJt3Bj7emTb8FrfW1q/Bk4DPV10erxPZ3nbppaB4/ZeKp98MAegXY9dYO6W/Ok/87N6ayAA==" />
+      <enclosure url="https://github.com/mohak-bhatt/aero/releases/download/v0.2.3/Aero.zip" length="9066218" type="application/octet-stream" sparkle:edSignature="Gj/jsdnnmwy7E46BX5/+aOtb1CSy7mCGtlUsSkvNVa7JSD0mz+zKSNn+LLknG10ydZHQeSi5HbkGsY9SpdcaBw==" />
     </item>
   </channel>
 </rss>
