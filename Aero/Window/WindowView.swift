@@ -3,20 +3,23 @@ import SwiftUI
 struct WindowView: View {
     @ObservedObject var state: BrowserState
     @ObservedObject var tabs: TabManager
+    @ObservedObject var engine: EngineModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(state: BrowserState) {
         self.state = state
         self.tabs = state.tabs
+        self.engine = state.engine
     }
 
     var body: some View {
         Group {
-            if state.layoutPreset.isHorizontal { horizontalLayout } else { verticalLayout }
+            if engine.enabled { EngineWorkspace(state: state, model: engine) { content(topInset: 6) } }
+            else if state.layoutPreset.isHorizontal { horizontalLayout } else { verticalLayout }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { if !state.layoutPreset.isHorizontal { EngineDock(state: state, edge: "top") } }
-        .safeAreaInset(edge: .bottom, spacing: 0) { if !state.layoutPreset.isHorizontal { EngineDock(state: state, edge: "bottom") } }
-        .overlay { if state.engineEditing { EngineCanvas(state: state) } }
+        .safeAreaInset(edge: .top, spacing: 0) { if !engine.enabled && !state.layoutPreset.isHorizontal { EngineDock(state: state, edge: "top") } }
+        .safeAreaInset(edge: .bottom, spacing: 0) { if !engine.enabled && !state.layoutPreset.isHorizontal { EngineDock(state: state, edge: "bottom") } }
+
         .ignoresSafeArea(.container, edges: .top)
         .environmentObject(state)
         .overlayPreferenceValue(OmniboxFrameKey.self) { anchors in

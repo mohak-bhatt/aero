@@ -68,7 +68,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard let window, !window.styleMask.contains(.fullScreen) else { return }
         let height = window.frame.height - window.contentLayoutRect.height
         if height > 20 { state.titlebarHeight = height }
-        if state.layoutPreset != .compact,
+        if state.layoutPreset != .compact && !state.engineCompactLights,
            let mini = window.standardWindowButton(.miniaturizeButton),
            let zoom = window.standardWindowButton(.zoomButton), let host = zoom.superview {
             let z = host.convert(zoom.frame, to: nil)
@@ -100,7 +100,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     // MARK: NSWindowDelegate
 
     private func restoreCompactLights() {
-        guard state.layoutPreset == .compact, let root = window?.contentView else { return }
+        guard state.layoutPreset == .compact || state.engineCompactLights, let root = window?.contentView else { return }
         func visit(_ view: NSView) {
             if let host = view as? VerticalTrafficLights.Host { host.attach(); host.layoutSubtreeIfNeeded() }
             else { for child in view.subviews { visit(child) } }

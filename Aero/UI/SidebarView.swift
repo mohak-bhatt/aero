@@ -439,7 +439,7 @@ struct PinnedTabTile: View {
     }
 }
 
-private struct SidebarTabRow: View {
+struct SidebarTabRow: View {
     @EnvironmentObject private var state: BrowserState
     @ObservedObject var tab: BrowserTab
     let size: SidebarSize
@@ -489,7 +489,7 @@ private struct SidebarTabRow: View {
 }
 
 /// Observe precise trackpad scrolling only inside this sidebar; leave vertical scrolling alone.
-private struct SidebarSwipeSurface: NSViewRepresentable {
+struct SidebarSwipeSurface: NSViewRepresentable {
     let width: CGFloat
     let change: (CGFloat) -> Void
     let settle: (Bool) -> Void

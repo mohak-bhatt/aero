@@ -199,6 +199,11 @@ struct EngineSetupView: View {
     var body: some View {
         Form {
             Section("Make Aero yours") {
+                Button("Return to original sidebar") {
+                    if let state = WindowCoordinator.shared.activeState { state.engine.finish(cancel: true); state.engine.enabled = false; state.engineEditing = false; state.sidebarVisible = true }
+                }
+                Text("Aero Engine edits the live browser. Move individual controls to any edge; the same controls work in vertical and horizontal arrangements.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Button("Open Browser Canvas") {
                     WindowCoordinator.shared.activeState?.engineEditing = true
                     NSApp.keyWindow?.orderOut(nil)

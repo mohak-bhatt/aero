@@ -31,6 +31,13 @@ enum WhatsNew {
 
     static func release(for version: String) -> WhatsNewRelease? {
         switch version {
+        case "0.2.3":
+            return WhatsNewRelease(headline: "Aero Engine · First preview", subtitle: "Your controls. Your arrangement.", items: [
+                WhatsNewItem(symbol: "slider.horizontal.3", title: "Edit the real browser", detail: "Choose Aero → Customise Browser. Drag individual controls to an edge, reorder them, or hide optional elements. Undo, Cancel and Reset keep changes reversible.", tint: .blue),
+                WhatsNewItem(symbol: "rectangle.3.group", title: "One set of controls", detail: "Left, right, top and bottom presets use the same controls. Compact arrangements keep them close. Engine is optional while this first pass is refined.", tint: .purple),
+                WhatsNewItem(symbol: "sparkles", title: "Build during setup", detail: "The welcome tour opens the live browser editor. Choose a preset and make it yours.", tint: .orange),
+                WhatsNewItem(symbol: "checkmark.shield", title: "Launch signing corrected", detail: "App and embedded updater now use consistent certificate signing, with a packaged launch check.", tint: .green)
+            ])
         case "0.2.2":
             return WhatsNewRelease(headline: "What’s new in Aero 0.2.2", subtitle: "Updates that install inside Aero.", items: [
                 WhatsNewItem(symbol: "arrow.down.circle", title: "Signed in-app updates", detail: "Future updates use Sparkle to verify, install and relaunch Aero. Renamed installations keep their location.", tint: .blue),

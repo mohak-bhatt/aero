@@ -2,6 +2,7 @@ import SwiftUI
 
 @MainActor
 enum Onboarding {
+    static var resumeAfterCustomization = false
     private static var window: NSWindow?
     static var needed: Bool { !UserDefaults.standard.bool(forKey: "aero.onboarded") }
 
@@ -48,7 +49,7 @@ struct OnboardingView: View {
                 case 0: welcome
                 case 1: featureDemo("Your media stays with you", "Play a song or video, then switch tabs. Playback stays within reach in Live Activities.", symbol: "waveform", split: false)
                 case 2: featureDemo("Two pages. One workspace.", "Split tabs keep related pages together. Drag the divider to resize; double-click to swap sides.", symbol: "rectangle.split.2x1", split: true)
-                case 3: EngineSetupView()
+                case 3: engineStep
                 case 4: sizeStep
                 case 5: searchStep
                 case 6: lookStep
@@ -64,6 +65,7 @@ struct OnboardingView: View {
             .id(step)
             .transition(.opacity.combined(with: .move(edge: .trailing)))
 
+            HStack { Spacer(); Button("Skip setup") { finish() }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary) }.padding(.horizontal, 36).padding(.bottom, 12)
             footer
         }
         .frame(width: 620, height: 560)
@@ -91,6 +93,34 @@ struct OnboardingView: View {
                     .glass(in: RoundedRectangle(cornerRadius: 24))
             }.accessibilityHidden(true)
             Text(detail).multilineTextAlignment(.center).foregroundStyle(.secondary)
+        }
+    }
+
+    private var engineStep: some View {
+        VStack(spacing: 20) {
+            header("slider.horizontal.3", "Build your browser", "Same controls. Your arrangement. Start with a preset, then move the actual elements.")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                ForEach(EngineConfiguration.Dock.allCases.filter { $0 != .hidden }) { edge in
+                    Button {
+                        guard let state = WindowCoordinator.shared.activeState else { return }
+                        state.engine.enabled = true
+                        state.engine.update { $0 = .preset(edge) }
+                    } label: {
+                        Label(edge.title, systemImage: edge.vertical ? "sidebar.left" : "rectangle.topthird.inset.filled")
+                            .frame(maxWidth: .infinity).padding(16)
+                            .glass(in: RoundedRectangle(cornerRadius: 16))
+                    }.buttonStyle(.plain)
+                }
+            }
+            Button("Customize the live browser") {
+                guard let state = WindowCoordinator.shared.activeState else { return }
+                Onboarding.resumeAfterCustomization = true
+                state.engineEditing = true
+                NSApp.keyWindow?.orderOut(nil)
+                state.tabs.selectedTab?.webView.window?.makeKeyAndOrderFront(nil)
+            }.buttonStyle(.borderedProminent).controlSize(.large)
+            Text("Drag controls to an edge, reorder them, or hide optional elements. Undo, Cancel and Reset are always available.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
     }
 
@@ -157,8 +187,8 @@ struct OnboardingView: View {
                 }
             }
             VStack(spacing: 4) {
-                Slider(value: $blur, in: 0.1...1) { Text("Background blur") } minimumValueLabel: { Text("Clear").font(.caption) } maximumValueLabel: { Text("Frosted").font(.caption) }
-                Text("Background blur").font(.caption).foregroundStyle(.secondary)
+                Slider(value: $blur, in: 0.1...1) { Text("Glass intensity") } minimumValueLabel: { Text("Clear").font(.caption) } maximumValueLabel: { Text("Frosted").font(.caption) }
+                Text("Glass intensity").font(.caption).foregroundStyle(.secondary)
             }
         }
     }

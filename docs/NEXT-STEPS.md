@@ -1,4 +1,4 @@
-# Aero roadmap after 0.2.1
+# Aero roadmap after the Engine first pass
 
 ## Update recovery — current priority
 Cause confirmed: 0.2.0/0.2.1's Update Now opens a release page; it does not install.
@@ -33,7 +33,13 @@ provider adapters for mic, camera and leave actions, never generic video command
 AI completion/usage indicators must use supported, verifiable signals; unavailable
 usage remains unavailable. Gate: provider failure, navigation and tab-close tests.
 
-## 4. Build Aero Engine around the real browser
+## Engine first pass delivered in 0.2.3
+See ENGINE-FIRST-PASS.md for the shipped element model, shared renderer, in-place
+editor and onboarding connection. Next acceptance: real drag/drop across all edges,
+small windows, fullscreen, VoiceOver and multiple windows. Do not substitute build
+success for interaction QA. Onboarding media remains a separate follow-up.
+
+## 4. Continue Aero Engine around the real browser
 First formalise layout schema, versioned persistence, constraints, undo/reset and
 accessible keyboard editing. Support classic/compact vertical and left/right docks.
 Then implement in-place drag/drop customization with valid targets, overflow handling,

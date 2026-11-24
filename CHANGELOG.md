@@ -1,5 +1,22 @@
 # Changelog
 
+## Aero 0.2.3 — Aero Engine first preview
+
+**Fixes the 0.2.2 launch-signing failure.** App and embedded updater use consistent certificate signing. Packaging now tests the executable's loader, including from the mounted DMG.
+
+### Try Aero Engine
+Choose **Aero → Customise Browser…**. Drag individual controls to any edge or before another control. The same controls serve vertical and horizontal arrangements. Includes standard/compact presets, optional-element visibility, larger controls, persistence, Undo/Redo, Cancel and Reset. Engine is opt-in; Settings → Engine offers Return to original sidebar.
+
+The welcome tour connects to presets and the live editor, with Skip available. This is a first pass: polished onboarding videos, cross-window live layout synchronization and broader visual/hardware acceptance remain for iteration.
+
+### Validation
+Debug/Release builds; 154 integration checks plus 8 core tests; mounted-DMG launch check; matching app/framework signing teams. Hardware interaction and all layout combinations have not been visually certified.
+
+This remains an Apple Silicon, macOS 26.5+ preview signed with a development certificate, not a notarized production release. Previously documented sandbox/provider limitations remain.
+
+The locally repaired 0.2.2 AeroX can use Update Now. If 0.2.2 cannot launch, replace its app bundle once with this download; preserve the existing filename and browser data.
+
+
 ## Aero 0.2.2 preview — updater migration
 
 Updates now use Sparkle 2.10.1 to verify signed archives, install and relaunch Aero. Update Now no longer opens GitHub instead of installing. The app embeds the public Ed25519 verification key; release signing uses a private key held in Keychain.

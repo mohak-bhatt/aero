@@ -3,11 +3,11 @@
   <channel>
     <title>Aero Preview Updates</title>
     <item>
-      <title>Aero 0.2.2</title>
-      <sparkle:version>22</sparkle:version>
-      <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
+      <title>Aero 0.2.3</title>
+      <sparkle:version>23</sparkle:version>
+      <sparkle:shortVersionString>0.2.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.5</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/mohak-bhatt/aero/releases/download/v0.2.2/Aero.zip" length="8942908" type="application/octet-stream" sparkle:edSignature="0aeVXk5YR1lyQh7EDp9Jvb0RHcGHM8i3v9YmZ308AHJINEU5nYKMf3QU3k2rH7OBRaltEMn75wSfAIclvK3OBg==" />
+      <enclosure url="https://github.com/mohak-bhatt/aero/releases/download/v0.2.3/Aero.zip" length="9065608" type="application/octet-stream" sparkle:edSignature="IoF7O+HyPTOlJHjNJt3Bj7emTb8FrfW1q/Bk4DPV10erxPZ3nbppaB4/ZeKp98MAegXY9dYO6W/Ok/87N6ayAA==" />
     </item>
   </channel>
 </rss>

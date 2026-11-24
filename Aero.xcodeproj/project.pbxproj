@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		71FB7F75308D017700591AA4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71FB7F74308D017700591AA4 /* Assets.xcassets */; };
-		AA0210000000000000000001 = {isa = PBXBuildFile; productRef = AA0210000000000000000002; };
+		AA0210000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA0210000000000000000002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,7 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-                AA0210000000000000000001,
+				AA0210000000000000000001 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,7 +73,7 @@
 			);
 			name = Aero;
 			packageProductDependencies = (
-                AA0210000000000000000002,
+				AA0210000000000000000002 /* Sparkle */,
 			);
 			productName = Aero;
 			productReference = 7169A241304B2190002E9ADE /* Aero.app */;
@@ -81,12 +81,9 @@
 		};
 /* End PBXNativeTarget section */
 
-AA0210000000000000000002 = {isa = XCSwiftPackageProductDependency; package = AA0210000000000000000003; productName = Sparkle; };
-AA0210000000000000000003 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/sparkle-project/Sparkle"; requirement = {kind = exactVersion; version = 2.10.1; }; };
 /* Begin PBXProject section */
 		7169A239304B2190002E9ADE /* Project object */ = {
 			isa = PBXProject;
-            packageReferences = (AA0210000000000000000003,);
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2660;
@@ -107,6 +104,9 @@ AA0210000000000000000003 = {isa = XCRemoteSwiftPackageReference; repositoryURL =
 			);
 			mainGroup = 7169A238304B2190002E9ADE;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA0210000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7169A242304B2190002E9ADE /* Products */;
 			projectDirPath = "";
@@ -267,19 +267,19 @@ AA0210000000000000000003 = {isa = XCRemoteSwiftPackageReference; repositoryURL =
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 7NJJZDK5T6;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-                INFOPLIST_FILE = Config/Info.plist;
+				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = mackieb.Aero;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -301,19 +301,19 @@ AA0210000000000000000003 = {isa = XCRemoteSwiftPackageReference; repositoryURL =
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 7NJJZDK5T6;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-                INFOPLIST_FILE = Config/Info.plist;
+				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = mackieb.Aero;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -348,6 +348,25 @@ AA0210000000000000000003 = {isa = XCRemoteSwiftPackageReference; repositoryURL =
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AA0210000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA0210000000000000000002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0210000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7169A239304B2190002E9ADE /* Project object */;
 }

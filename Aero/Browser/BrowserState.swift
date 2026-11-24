@@ -63,7 +63,10 @@ final class BrowserState: ObservableObject {
     @Published var findNotFound = false
     @Published var findFocusToken = 0
 
-    @Published var engineEditing = false
+    let engine = EngineModel()
+    var engineContentRect: CGRect?
+    var engineCompactLights: Bool { engine.enabled && engine.configuration.compact && engine.configuration.primary.vertical }
+    @Published var engineEditing = false { didSet { if engineEditing { engine.begin() } } }
     @Published var activitiesDrawerOpen = false
     @Published var activitiesDragWidth: CGFloat? = nil
     var activitiesRevealWidth: CGFloat { activitiesDragWidth ?? (activitiesDrawerOpen ? 52 : 0) }
@@ -149,6 +152,7 @@ final class BrowserState: ObservableObject {
     func closeSelectedTab() { tabs.closeSelectedTab() }
     func reopenClosedTab() { tabs.reopenClosedTab() }
     func requestOmniboxFocus() {
+        if engine.enabled { sidebarVisible = true }
         if !sidebarVisible && !layoutPreset.isHorizontal { sidebarPeeking = true }
         pendingOmniboxFocus = true
     }
@@ -246,6 +250,7 @@ final class BrowserState: ObservableObject {
 
     /// The page area in window coordinates (origin top-left).
     var contentRect: CGRect {
+        if engine.enabled, let engineContentRect { return engineContentRect }
         guard let size = window?.contentView?.bounds.size else { return .zero }
         if layoutPreset.isHorizontal {
             let top = rowHeight + (layoutPreset == .compactHorizontal ? 8 : 54)
