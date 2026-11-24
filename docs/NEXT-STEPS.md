@@ -33,7 +33,7 @@ provider adapters for mic, camera and leave actions, never generic video command
 AI completion/usage indicators must use supported, verifiable signals; unavailable
 usage remains unavailable. Gate: provider failure, navigation and tab-close tests.
 
-## Engine first pass delivered in 0.2.3
+## Engine first pass delivered in 0.3.0
 See ENGINE-FIRST-PASS.md for the shipped element model, shared renderer, in-place
 editor and onboarding connection. Next acceptance: real drag/drop across all edges,
 small windows, fullscreen, VoiceOver and multiple windows. Do not substitute build

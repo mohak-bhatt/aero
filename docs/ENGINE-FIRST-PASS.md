@@ -1,4 +1,4 @@
-# Aero Engine — first pass (0.2.3)
+# Aero Engine — first pass (0.3.0)
 
 Open **Aero → Customise Browser…** in the actual browser. Engine is opt-in; existing
 installations keep the original sidebar until they choose it. Settings → Engine →
@@ -44,7 +44,7 @@ onboarding to the real Engine instead of presenting an inert customization scree
 ## Release signing correction
 0.2.2 used ad-hoc signatures with hardened library validation and could fail before
 startup when loading Sparkle. Packaging now requires a certificate identity and
-executes a launch check in addition to signature verification. The 0.2.3 DMG's
+executes a launch check in addition to signature verification. The 0.3.0 DMG's
 app and framework use the same development team; this remains a non-notarized
 preview, not a Developer ID production distribution. Production beta still needs
 Developer ID signing, notarization and the security gates in NEXT-STEPS.md.

@@ -31,7 +31,7 @@ enum WhatsNew {
 
     static func release(for version: String) -> WhatsNewRelease? {
         switch version {
-        case "0.2.3":
+        case "0.3.0":
             return WhatsNewRelease(headline: "Aero Engine · First preview", subtitle: "Your controls. Your arrangement.", items: [
                 WhatsNewItem(symbol: "slider.horizontal.3", title: "Edit the real browser", detail: "Choose Aero → Customise Browser. Drag individual controls to an edge, reorder them, or hide optional elements. Undo, Cancel and Reset keep changes reversible.", tint: .blue),
                 WhatsNewItem(symbol: "rectangle.3.group", title: "One set of controls", detail: "Left, right, top and bottom presets use the same controls. Compact arrangements keep them close. Engine is optional while this first pass is refined.", tint: .purple),

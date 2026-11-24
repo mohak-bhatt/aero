@@ -1,6 +1,6 @@
 # Changelog
 
-## Aero 0.2.3 — Aero Engine first preview
+## Aero 0.3.0 — Aero Engine first preview
 
 **Fixes the 0.2.2 launch-signing failure.** App and embedded updater use consistent certificate signing. Packaging now tests the executable's loader, including from the mounted DMG.
 
