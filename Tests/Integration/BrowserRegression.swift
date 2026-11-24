@@ -154,6 +154,34 @@ struct BrowserRegression {
         check("CSV embedded newline", PasswordStore.parseCSV("a,\"b\nc\"")[0][1] == "b\nc")
         check("JS string quoting", PasswordStore.js("\"\\\n").hasPrefix("\""))
 
+        let engineModel = EngineModel(defaults: defaults)
+        check("engine defaults to legacy until chosen", !engineModel.enabled)
+        engineModel.begin()
+        engineModel.update { $0 = .preset(.bottom, compact: true) }
+        check("engine preset retains every element", Set(engineModel.configuration.placements.map(\.element)) == Set(EngineConfiguration.Element.allCases))
+        engineModel.update { $0.move(.back, to: .top, before: .forward) }
+        check("engine moves one control independently", engineModel.configuration.placements.first(where: { $0.element == .back })?.dock == .top && engineModel.configuration.placements.first(where: { $0.element == .forward })?.dock == .bottom)
+        engineModel.undo()
+        check("engine undo restores placement", engineModel.configuration.placements.first(where: { $0.element == .back })?.dock == .bottom)
+        engineModel.redo()
+        check("engine redo reapplies placement", engineModel.configuration.placements.first(where: { $0.element == .back })?.dock == .top)
+        engineModel.update { $0.move(.address, to: .hidden) }
+        check("engine cannot hide address", engineModel.configuration.placements.first(where: { $0.element == .address })?.dock != .hidden)
+        engineModel.update { $0.move(.share, to: .hidden) }
+        check("engine optional control can hide", engineModel.configuration.placements.first(where: { $0.element == .share })?.dock == .hidden)
+        check("engine restores persisted elements", EngineModel(defaults: defaults).configuration == engineModel.configuration)
+        engineModel.finish(cancel: true)
+        check("engine cancel restores prior mode", !engineModel.enabled && engineModel.configuration == .preset())
+        var damagedEngine = EngineConfiguration.preset()
+        damagedEngine.placements.append(damagedEngine.placements[0])
+        check("engine removes duplicate elements", damagedEngine.validated().placements.count == EngineConfiguration.Element.allCases.count)
+        damagedEngine.version = 999
+        check("engine unknown schema recovers safely", damagedEngine.validated() == .preset())
+        for edge in EngineConfiguration.Dock.allCases where edge != .hidden {
+            let configuration = EngineConfiguration.preset(edge)
+            check("engine edge persists \(edge.rawValue)", (try? JSONDecoder().decode(EngineConfiguration.self, from: JSONEncoder().encode(configuration))) == configuration)
+        }
+
         let layouts = BrowserLayoutStore(defaults: defaults)
         check("layout absent allows legacy preferences", layouts.load() == nil)
         for preset in BrowserLayout.Preset.allCases {

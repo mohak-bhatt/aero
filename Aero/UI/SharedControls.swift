@@ -26,22 +26,32 @@ struct NavigationPill: View {
     }
 
     private func button(_ symbol: String, enabled: Bool, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
+        NavigationArrow(tab: tab, back: symbol == "chevron.left", height: height, iconSize: iconSize)
+    }
+}
+
+struct NavigationArrow: View {
+    @ObservedObject var tab: BrowserTab
+    let back: Bool
+    let height: CGFloat
+    let iconSize: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        Button { if back { tab.goBack() } else { tab.goForward() } } label: {
+            Image(systemName: back ? "chevron.left" : "chevron.right")
                 .font(.system(size: iconSize, weight: .medium))
-                .frame(width: height * 0.95, height: height)
-                .contentShape(Rectangle())
+                .frame(width: height * 0.95, height: height).contentShape(Rectangle())
         }
-        .keyframeAnimator(initialValue: CGFloat(1), trigger: reduceMotion ? 0 : (symbol == "chevron.left" ? tab.backPulse : tab.forwardPulse)) { view, scale in
+        .keyframeAnimator(initialValue: CGFloat(1), trigger: reduceMotion ? 0 : (back ? tab.backPulse : tab.forwardPulse)) { view, scale in
             view.scaleEffect(scale)
         } keyframes: { _ in
             CubicKeyframe(1.32, duration: 0.10)
             SpringKeyframe(1, duration: 0.32, spring: .bouncy)
         }
         .buttonStyle(RubberButtonStyle())
-        .opacity(enabled ? 0.9 : 0.3)
-        .disabled(!enabled)
-        .help(help)
+        .opacity((back ? tab.canGoBack : tab.canGoForward) ? 0.9 : 0.3)
+        .disabled(!(back ? tab.canGoBack : tab.canGoForward))
+        .help(back ? "Back (⌘[)" : "Forward (⌘])")
     }
 }
 

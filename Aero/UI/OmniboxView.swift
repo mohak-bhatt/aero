@@ -16,21 +16,23 @@ struct OmniboxView: View {
     @ObservedObject private var manager: TabManager
     var height: CGFloat
     var showsExtensions = true
+    var includesPageControls = true
 
     @State private var editing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(tab: BrowserTab, state: BrowserState, height: CGFloat, showsExtensions: Bool = true) {
+    init(tab: BrowserTab, state: BrowserState, height: CGFloat, showsExtensions: Bool = true, includesPageControls: Bool = true) {
         _tab = ObservedObject(wrappedValue: tab)
         _state = ObservedObject(wrappedValue: state)
         _manager = ObservedObject(wrappedValue: state.tabs)
         self.height = height
         self.showsExtensions = showsExtensions
+        self.includesPageControls = includesPageControls
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            PageMenuButton(tab: tab, state: state, manager: manager)
+            if includesPageControls { PageMenuButton(tab: tab, state: state, manager: manager) }
             OmniboxTextField(
                 displayText: tab.url?.omniboxDisplay ?? "",
                 fullText: tab.url?.absoluteString ?? "",
@@ -41,7 +43,7 @@ struct OmniboxView: View {
                 onChange: { state.updateSuggestions($0) },
                 onMove: { state.moveSuggestion(by: $0) },
                 onEnd: { state.clearSuggestions() })
-            Button { tab.reloadOrStop() } label: {
+            if includesPageControls { Button { tab.reloadOrStop() } label: {
                 Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
                     .contentTransition(.symbolEffect(.replace))
                     .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: tab.isLoading)
@@ -51,7 +53,7 @@ struct OmniboxView: View {
             }
             .buttonStyle(RubberButtonStyle())
             .opacity(0.85)
-            .help(tab.isLoading ? "Stop" : "Reload (⌘R)")
+            .help(tab.isLoading ? "Stop" : "Reload (⌘R)") }
         }
         .padding(.horizontal, 4)
         .frame(height: height)
@@ -67,7 +69,7 @@ struct OmniboxView: View {
 }
 
 /// Page menu button at the leading edge of the pill; opens a compact Safari-style panel.
-private struct PageMenuButton: View {
+struct PageMenuButton: View {
     @ObservedObject var tab: BrowserTab
     @ObservedObject var state: BrowserState
     @ObservedObject var manager: TabManager

@@ -4,6 +4,13 @@ import SwiftUI
 struct AeroApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        if CommandLine.arguments.contains("--aero-launch-check") {
+            print("Aero launch check passed")
+            exit(0)
+        }
+    }
+
     var body: some Scene {
         Settings { SettingsView() }
             .commands { AeroCommands() }
